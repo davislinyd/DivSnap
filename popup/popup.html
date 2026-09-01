@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DivSnap</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true"><img src="../icons/icon-32.png" alt=""></div>
+      <div>
+        <h1>DivSnap</h1>
+        <p>DOM element capture</p>
+      </div>
+      <kbd>⌥⇧S</kbd>
+    </header>
+
+    <section class="start-panel">
+      <div>
+        <span class="eyebrow">INSPECTOR</span>
+        <strong>選取頁面元素</strong>
+        <small>Hover to preview · click to capture</small>
+      </div>
+      <button id="start" class="primary-button" type="button">
+        <span aria-hidden="true">＋</span> Start Inspect
+      </button>
+    </section>
+
+    <section class="settings" aria-labelledby="settings-title">
+      <div class="section-heading">
+        <span id="settings-title">Capture settings</span>
+        <span class="status-dot" aria-hidden="true"></span>
+      </div>
+      <label class="setting-row">
+        <span class="setting-copy"><strong>Copy to Clipboard</strong><small>PNG · Figma / Slack ready</small></span>
+        <input id="copyToClipboard" type="checkbox">
+        <span class="switch" aria-hidden="true"></span>
+      </label>
+      <label class="setting-row">
+        <span class="setting-copy"><strong>Download PNG</strong><small>Save to Downloads</small></span>
+        <input id="downloadPng" type="checkbox">
+        <span class="switch" aria-hidden="true"></span>
+      </label>
+    </section>
+
+    <section class="mode-section" aria-labelledby="mode-title">
+      <div class="section-heading"><span id="mode-title">Capture range</span><span class="unit">CSS px × DPR</span></div>
+      <div class="mode-options">
+        <label class="mode-option"><input type="radio" name="captureMode" value="visible"><span><strong>Visible</strong><small>Viewport crop</small></span></label>
+        <label class="mode-option"><input type="radio" name="captureMode" value="full"><span><strong>Full</strong><small>拼接完整 layout box</small></span></label>
+      </div>
+    </section>
+
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+    <footer>DivSnap · MV3 · no page access until you start</footer>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

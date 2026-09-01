@@ -1,0 +1,549 @@
+(() => {
+  if (globalThis.__divsnapInspector) return;
+
+  const state = {
+    host: null,
+    shadow: null,
+    highlight: null,
+    label: null,
+    boxLayers: [],
+    current: null,
+    listeners: [],
+    running: false,
+    busy: false,
+    hudTimer: null
+  };
+
+  globalThis.__divsnapInspector = {start};
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type !== "START_INSPECT") return false;
+    start()
+      .then(() => sendResponse({ok: true}))
+      .catch((error) => sendResponse({ok: false, error: error.message || String(error)}));
+    return true;
+  });
+
+  async function start() {
+    if (state.running) return;
+    state.running = true;
+    state.busy = false;
+    await createOverlay();
+    addListener(window, "mousemove", onMouseMove, true);
+    addListener(window, "click", onClick, true);
+    addListener(window, "keydown", onKeyDown, true);
+    updateFromPoint(innerWidth / 2, innerHeight / 2);
+  }
+
+  async function createOverlay() {
+    if (state.host?.isConnected && state.highlight) return;
+    if (state.host?.isConnected) {
+      clearTimeout(state.hudTimer);
+      state.host.remove();
+      state.host = null;
+      state.shadow = null;
+    }
+    const host = document.createElement("div");
+    host.setAttribute("data-divsnap-overlay", "true");
+    host.style.position = "fixed";
+    host.style.inset = "0";
+    host.style.zIndex = "2147483647";
+    host.style.display = "block";
+    host.style.pointerEvents = "none";
+    const shadow = host.attachShadow({mode: "open"});
+    const style = document.createElement("style");
+    try {
+      style.textContent = await fetch(chrome.runtime.getURL("overlay.css")).then((response) => response.text());
+    } catch {
+      style.textContent = "";
+    }
+    const root = document.createElement("div");
+    root.className = "divsnap-root";
+    const highlight = document.createElement("div");
+    highlight.className = "divsnap-highlight";
+    const label = document.createElement("div");
+    label.className = "divsnap-label";
+    highlight.append(label);
+    root.append(highlight);
+    shadow.append(style, root);
+    (document.documentElement || document.body).append(host);
+    state.host = host;
+    state.shadow = shadow;
+    state.highlight = highlight;
+    state.label = label;
+  }
+
+  function addListener(target, type, listener, capture = false) {
+    target.addEventListener(type, listener, capture);
+    state.listeners.push(() => target.removeEventListener(type, listener, capture));
+  }
+
+  function onMouseMove(event) {
+    if (!state.running || state.busy) return;
+    updateFromPoint(event.clientX, event.clientY);
+  }
+
+  function onClick(event) {
+    if (!state.running || state.busy) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    const target = deepElementFromPoint(event.clientX, event.clientY);
+    if (!isSelectable(target)) return;
+    state.current = target;
+    state.busy = true;
+    finishSelection(target).catch((error) => {
+      removeInspector(true);
+      showHud(`Capture failed / 截圖失敗：${error.message || String(error)}`, "error");
+    });
+  }
+
+  function onKeyDown(event) {
+    if (!state.running || state.busy) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      removeInspector(false);
+      return;
+    }
+    if (!state.current) return;
+    let next = null;
+    if (event.key === "ArrowUp") next = parentElementAcrossShadow(state.current);
+    if (event.key === "ArrowDown") next = state.current.firstElementChild;
+    if (event.key === "ArrowLeft") next = state.current.previousElementSibling;
+    if (event.key === "ArrowRight") next = state.current.nextElementSibling;
+    if (!isSelectable(next)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    state.current = next;
+    paintTarget(next);
+  }
+
+  function updateFromPoint(x, y) {
+    const target = deepElementFromPoint(x, y);
+    if (!isSelectable(target)) return;
+    state.current = target;
+    paintTarget(target);
+  }
+
+  function paintTarget(target) {
+    if (!state.highlight || !target?.getBoundingClientRect) return;
+    const rect = target.getBoundingClientRect();
+    state.highlight.style.left = `${rect.left}px`;
+    state.highlight.style.top = `${rect.top}px`;
+    state.highlight.style.width = `${Math.max(0, rect.width)}px`;
+    state.highlight.style.height = `${Math.max(0, rect.height)}px`;
+    state.label.textContent = describeElement(target);
+    state.label.dataset.below = rect.top < 36 ? "true" : "false";
+    paintBoxModel(target, rect);
+  }
+
+  function paintBoxModel(target, rect) {
+    clearBoxLayers();
+    const styles = getComputedStyle(target);
+    const margin = {
+      top: parseFloat(styles.marginTop) || 0,
+      right: parseFloat(styles.marginRight) || 0,
+      bottom: parseFloat(styles.marginBottom) || 0,
+      left: parseFloat(styles.marginLeft) || 0
+    };
+    const border = {
+      top: parseFloat(styles.borderTopWidth) || 0,
+      right: parseFloat(styles.borderRightWidth) || 0,
+      bottom: parseFloat(styles.borderBottomWidth) || 0,
+      left: parseFloat(styles.borderLeftWidth) || 0
+    };
+    const padding = {
+      top: parseFloat(styles.paddingTop) || 0,
+      right: parseFloat(styles.paddingRight) || 0,
+      bottom: parseFloat(styles.paddingBottom) || 0,
+      left: parseFloat(styles.paddingLeft) || 0
+    };
+    addBox("margin", rect.left - margin.left, rect.top - margin.top,
+      rect.width + margin.left + margin.right, rect.height + margin.top + margin.bottom, 1);
+    addBox("border", rect.left, rect.top, rect.width, rect.height, Math.max(border.top, 1));
+    addBox("padding", rect.left + border.left, rect.top + border.top,
+      Math.max(0, rect.width - border.left - border.right), Math.max(0, rect.height - border.top - border.bottom), 1);
+    addBox("content", rect.left + border.left + padding.left, rect.top + border.top + padding.top,
+      Math.max(0, rect.width - border.left - border.right - padding.left - padding.right),
+      Math.max(0, rect.height - border.top - border.bottom - padding.top - padding.bottom), 1);
+  }
+
+  function addBox(kind, left, top, width, height, borderWidth) {
+    const box = document.createElement("div");
+    box.className = `divsnap-box divsnap-${kind}`;
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    box.style.borderWidth = `${borderWidth}px`;
+    state.shadow.querySelector(".divsnap-root").append(box);
+    state.boxLayers.push(box);
+  }
+
+  function clearBoxLayers() {
+    for (const layer of state.boxLayers) layer.remove();
+    state.boxLayers = [];
+  }
+
+  async function finishSelection(target) {
+    const settings = await chrome.storage.sync.get({
+      copyToClipboard: true,
+      downloadPng: true,
+      captureMode: "visible"
+    });
+    if (!settings.copyToClipboard && !settings.downloadPng) {
+      removeInspector(true);
+      showHud("No output selected / 尚未選擇輸出方式", "warning");
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    let result;
+    removeInspector(true);
+    if (settings.captureMode === "full") {
+      result = await captureFull(target, dpr);
+    } else {
+      result = await captureVisible(target, dpr);
+    }
+    const blob = await canvasToBlob(result.canvas);
+    const messages = [];
+    if (result.notice) messages.push(result.notice);
+    if (result.clipped) messages.push("Visible crop / 已裁切至可見範圍");
+
+    const tasks = [];
+    if (settings.copyToClipboard) {
+      tasks.push(copyToClipboard(blob).then(() => messages.push("Copied / 已複製")).catch((error) => {
+        messages.push(`Clipboard failed / 複製失敗：${error.message || String(error)}`);
+      }));
+    }
+    if (settings.downloadPng) {
+      const filename = buildFilename(target);
+      tasks.push(downloadPng(blob, filename).then(() => messages.push("PNG downloaded / 已下載 PNG")).catch((error) => {
+        messages.push(`Download failed / 下載失敗：${error.message || String(error)}`);
+      }));
+    }
+    await Promise.all(tasks);
+    const kind = messages.some((message) => /failed|失敗/.test(message))
+      ? "error"
+      : result.notice
+        ? "warning"
+        : "info";
+    showHud(messages.join(" · "), kind);
+  }
+
+  async function captureVisible(target, dpr) {
+    target.scrollIntoView({block: "nearest", inline: "nearest"});
+    await waitForPaint();
+    const rect = target.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(innerWidth, rect.right);
+    const bottom = Math.min(innerHeight, rect.bottom);
+    if (right <= left || bottom <= top) throw new Error("Element is outside the viewport.");
+    const clipped = left !== rect.left || top !== rect.top || right !== rect.right || bottom !== rect.bottom;
+    const dataUrl = await requestCapture();
+    const image = await loadImage(dataUrl);
+    const canvas = document.createElement("canvas");
+    const sourceScaleX = image.naturalWidth / innerWidth;
+    const sourceScaleY = image.naturalHeight / innerHeight;
+    canvas.width = Math.max(1, Math.round((right - left) * dpr));
+    canvas.height = Math.max(1, Math.round((bottom - top) * dpr));
+    const context = canvas.getContext("2d");
+    context.drawImage(image,
+      Math.round(left * sourceScaleX), Math.round(top * sourceScaleY),
+      Math.round((right - left) * sourceScaleX), Math.round((bottom - top) * sourceScaleY),
+      0, 0, canvas.width, canvas.height);
+    return {canvas, clipped};
+  }
+
+  async function captureFull(target, dpr) {
+    const width = Math.max(1, target.offsetWidth);
+    const height = Math.max(1, target.offsetHeight);
+    const snapshot = saveScrollPositions(target);
+    if (width * dpr > 8192 || height * dpr > 8192) {
+      try {
+        const fallback = await captureVisible(target, dpr);
+        return {...fallback, notice: "Full exceeds 8192px / 超過限制，改用 Visible"};
+      } finally {
+        restoreScrollPositions(snapshot);
+      }
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+    const context = canvas.getContext("2d");
+    let y = 0;
+    let guard = 0;
+    try {
+      while (y < height - 0.5 && guard++ < 10_000) {
+        let x = 0;
+        let rowBottom = height;
+        let rowProgress = false;
+        while (x < width - 0.5 && guard++ < 10_000) {
+          const pointX = x === 0 ? 0 : Math.min(width - 1, x + innerWidth - 1);
+          const pointY = y === 0 ? 0 : Math.min(height - 1, y + innerHeight - 1);
+          await revealPoint(target, pointX, pointY);
+          const rect = target.getBoundingClientRect();
+          const visible = intersection(rect, innerWidth, innerHeight);
+          if (visible.width <= 0 || visible.height <= 0) {
+            throw new Error("Element cannot be brought into view.");
+          }
+          const localLeft = clamp(visible.left - rect.left, 0, width);
+          const localTop = clamp(visible.top - rect.top, 0, height);
+          const localRight = clamp(visible.right - rect.left, 0, width);
+          const localBottom = clamp(visible.bottom - rect.top, 0, height);
+          if (localBottom <= y || localRight <= x) {
+            throw new Error("Full capture did not make progress.");
+          }
+          const dataUrl = await requestCapture();
+          const image = await loadImage(dataUrl);
+          const sourceScaleX = image.naturalWidth / innerWidth;
+          const sourceScaleY = image.naturalHeight / innerHeight;
+          context.drawImage(image,
+            Math.round(visible.left * sourceScaleX), Math.round(visible.top * sourceScaleY),
+            Math.round(visible.width * sourceScaleX), Math.round(visible.height * sourceScaleY),
+            Math.round(localLeft * dpr), Math.round(localTop * dpr),
+            Math.round((localRight - localLeft) * dpr), Math.round((localBottom - localTop) * dpr));
+          rowBottom = Math.min(rowBottom, localBottom);
+          const nextX = localRight > x + 0.5 ? localRight : x + Math.max(1, visible.width);
+          x = Math.min(width, nextX);
+          rowProgress = true;
+        }
+        if (!rowProgress || rowBottom <= y) throw new Error("Full capture did not make vertical progress.");
+        y = Math.min(height, rowBottom);
+      }
+      if (y < height - 0.5) throw new Error("Full capture was incomplete.");
+      return {canvas, clipped: false};
+    } finally {
+      restoreScrollPositions(snapshot);
+    }
+  }
+
+  async function revealPoint(target, localX, localY) {
+    const ancestors = scrollableAncestors(target);
+    for (const ancestor of ancestors) {
+      const targetRect = target.getBoundingClientRect();
+      const ancestorRect = ancestor.getBoundingClientRect();
+      const pointX = targetRect.left + localX;
+      const pointY = targetRect.top + localY;
+      if (pointX < ancestorRect.left) ancestor.scrollLeft -= ancestorRect.left - pointX;
+      else if (pointX >= ancestorRect.right) ancestor.scrollLeft += pointX - ancestorRect.right + 1;
+      if (pointY < ancestorRect.top) ancestor.scrollTop -= ancestorRect.top - pointY;
+      else if (pointY >= ancestorRect.bottom) ancestor.scrollTop += pointY - ancestorRect.bottom + 1;
+    }
+    const targetRect = target.getBoundingClientRect();
+    const pointX = targetRect.left + localX;
+    const pointY = targetRect.top + localY;
+    if (pointX < 0 || pointX >= innerWidth) window.scrollBy(pointX < 0 ? pointX : pointX - innerWidth + 1, 0);
+    if (pointY < 0 || pointY >= innerHeight) window.scrollBy(0, pointY < 0 ? pointY : pointY - innerHeight + 1);
+    await waitForPaint(1);
+  }
+
+  function scrollableAncestors(target) {
+    const result = [];
+    let node = target.parentElement;
+    while (node && node !== document.body && node !== document.documentElement) {
+      if ((node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) && isScrollable(node)) {
+        result.push(node);
+      }
+      node = node.parentElement;
+    }
+    return result;
+  }
+
+  function isScrollable(node) {
+    const styles = getComputedStyle(node);
+    return styles.overflow !== "visible" || styles.overflowX !== "visible" || styles.overflowY !== "visible";
+  }
+
+  function saveScrollPositions(target) {
+    const ancestors = scrollableAncestors(target);
+    return {
+      window: {x: scrollX, y: scrollY},
+      ancestors: ancestors.map((node) => ({node, left: node.scrollLeft, top: node.scrollTop}))
+    };
+  }
+
+  function restoreScrollPositions(snapshot) {
+    for (const item of snapshot.ancestors) {
+      item.node.scrollLeft = item.left;
+      item.node.scrollTop = item.top;
+    }
+    window.scrollTo(snapshot.window.x, snapshot.window.y);
+  }
+
+  function intersection(rect, viewportWidth, viewportHeight) {
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(viewportWidth, rect.right);
+    const bottom = Math.min(viewportHeight, rect.bottom);
+    return {left, top, right, bottom, width: right - left, height: bottom - top};
+  }
+
+  function deepElementFromPoint(x, y) {
+    let element = document.elementFromPoint(x, y);
+    while (element?.shadowRoot?.mode === "open") {
+      const shadowRoot = element.shadowRoot;
+      const nested = shadowRoot.elementsFromPoint?.(x, y)?.[0] || shadowRoot.elementFromPoint?.(x, y);
+      if (!nested || nested === element) break;
+      element = nested;
+    }
+    return element;
+  }
+
+  function parentElementAcrossShadow(element) {
+    if (element.parentElement) return element.parentElement;
+    const root = element.getRootNode();
+    return root instanceof ShadowRoot ? root.host : null;
+  }
+
+  function isSelectable(element) {
+    return element instanceof Element && element !== state.host && !state.host?.contains(element);
+  }
+
+  function describeElement(element) {
+    const tag = element.tagName.toLowerCase();
+    const id = element.id ? `#${element.id}` : "";
+    const classes = [...element.classList].slice(0, 4).map((name) => `.${name}`).join("");
+    const rect = element.getBoundingClientRect();
+    return `${tag}${id}${classes} [${Math.round(rect.width)}×${Math.round(rect.height)}]`;
+  }
+
+  function removeInspector(keepHud) {
+    for (const remove of state.listeners.splice(0)) remove();
+    clearBoxLayers();
+    state.highlight?.remove();
+    state.highlight = null;
+    state.label = null;
+    state.current = null;
+    state.running = false;
+    if (!keepHud) {
+      clearTimeout(state.hudTimer);
+      state.host?.remove();
+      state.host = null;
+      state.shadow = null;
+    }
+  }
+
+  function showHud(message, kind = "info") {
+    if (!state.host) {
+      state.host = document.createElement("div");
+      state.host.setAttribute("data-divsnap-overlay", "true");
+      state.host.style.position = "fixed";
+      state.host.style.inset = "0";
+      state.host.style.zIndex = "2147483647";
+      state.host.style.display = "block";
+      state.host.style.pointerEvents = "none";
+      state.shadow = state.host.attachShadow({mode: "open"});
+      const style = document.createElement("style");
+      fetch(chrome.runtime.getURL("overlay.css")).then((response) => response.text()).then((css) => style.textContent = css).catch(() => {});
+      const root = document.createElement("div");
+      root.className = "divsnap-root";
+      state.shadow.append(style, root);
+      (document.documentElement || document.body).append(state.host);
+    }
+    const hud = document.createElement("div");
+    hud.className = "divsnap-hud";
+    hud.dataset.kind = kind;
+    hud.textContent = message;
+    state.shadow.querySelector(".divsnap-root").append(hud);
+    clearTimeout(state.hudTimer);
+    state.hudTimer = setTimeout(() => {
+      state.host?.remove();
+      state.host = null;
+      state.shadow = null;
+    }, 2500);
+  }
+
+  function requestCapture() {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({type: "CAPTURE_VISIBLE"}, (response) => {
+        const error = chrome.runtime.lastError;
+        if (error) return reject(new Error(error.message));
+        if (!response?.ok) return reject(new Error(response?.error || "Capture unavailable."));
+        resolve(response.dataUrl);
+      });
+    });
+  }
+
+  async function copyToClipboard(blob) {
+    if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error("Clipboard API unavailable.");
+    await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]);
+  }
+
+  function downloadPng(blob, filename) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const buffer = await blob.arrayBuffer();
+        const bufferBase64 = arrayBufferToBase64(buffer);
+        chrome.runtime.sendMessage({type: "DOWNLOAD_PNG", filename, bufferBase64}, (response) => {
+          const error = chrome.runtime.lastError;
+          if (error) reject(new Error(error.message));
+          else if (!response?.ok) reject(new Error(response?.error || "Download unavailable."));
+          else resolve(response.downloadId);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }
+    return btoa(binary);
+  }
+
+  function canvasToBlob(canvas) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not encode PNG.")), "image/png");
+    });
+  }
+
+  function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Captured image could not be decoded."));
+      image.src = dataUrl;
+    });
+  }
+
+  function waitForPaint(frames = 2) {
+    return new Promise((resolve) => {
+      let remaining = frames;
+      const next = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          setTimeout(resolve, 50);
+        } else {
+          requestAnimationFrame(next);
+        }
+      };
+      requestAnimationFrame(next);
+    });
+  }
+
+  function buildFilename(element) {
+    const tag = element.tagName.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    const id = element.id ? `-${element.id.replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-")}` : "";
+    const date = new Date();
+    const stamp = [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join("") + "-" +
+      [pad(date.getHours()), pad(date.getMinutes()), pad(date.getSeconds())].join("");
+    return `divsnap-${tag}${id}-${stamp}.png`;
+  }
+
+  function pad(value) {
+    return String(value).padStart(2, "0");
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+})();

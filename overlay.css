@@ -1,0 +1,96 @@
+:host {
+  all: initial;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: block;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.divsnap-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.divsnap-highlight {
+  position: fixed;
+  box-sizing: border-box;
+  border: 2px solid #27c2ff;
+  background: rgba(39, 194, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(3, 19, 39, 0.64), 0 4px 18px rgba(0, 114, 180, 0.18);
+  transition: left 60ms ease-out, top 60ms ease-out, width 60ms ease-out, height 60ms ease-out;
+}
+
+.divsnap-label {
+  position: absolute;
+  left: -2px;
+  top: -28px;
+  max-width: min(460px, 80vw);
+  padding: 5px 8px;
+  overflow: hidden;
+  color: #f7fbff;
+  background: #071b34;
+  border: 1px solid #2bc4ff;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 16, 37, 0.26);
+  font: 600 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.divsnap-label[data-below="true"] {
+  top: calc(100% + 6px);
+}
+
+.divsnap-box {
+  position: fixed;
+  box-sizing: border-box;
+  border-style: solid;
+  pointer-events: none;
+}
+
+.divsnap-margin {
+  border-color: rgba(247, 196, 77, 0.7);
+  background: rgba(247, 196, 77, 0.08);
+}
+
+.divsnap-padding {
+  border-color: rgba(77, 220, 153, 0.8);
+  background: rgba(77, 220, 153, 0.08);
+}
+
+.divsnap-border {
+  border-color: rgba(255, 118, 104, 0.9);
+  background: rgba(255, 118, 104, 0.08);
+}
+
+.divsnap-content {
+  border-color: rgba(87, 159, 255, 0.9);
+  background: rgba(87, 159, 255, 0.1);
+}
+
+.divsnap-hud {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 14px;
+  color: #f7fbff;
+  background: rgba(7, 27, 52, 0.95);
+  border: 1px solid rgba(104, 214, 255, 0.72);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 16, 37, 0.28);
+  font: 600 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+.divsnap-hud[data-kind="warning"] {
+  border-color: rgba(247, 196, 77, 0.9);
+}
+
+.divsnap-hud[data-kind="error"] {
+  border-color: rgba(255, 118, 104, 0.95);
+}

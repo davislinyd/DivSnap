@@ -1,0 +1,29 @@
+# Local/system noise
+.DS_Store
+.idea/
+.vscode/
+
+# Agent/session state
+.ai/
+
+# Local test fixtures and generated captures
+reference/
+output/
+dist/
+*.log
+
+# Dependencies and packaged artifacts
+node_modules/
+*.zip
+
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+credentials.json
+service-account*.json
