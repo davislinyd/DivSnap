@@ -1,6 +1,20 @@
 (() => {
   if (globalThis.__divsnapInspector) return;
 
+  const SHIFT_PATH_STEP = 6;
+  const SHIFT_HIT_RADIUS = 6;
+  const SHIFT_HIT_OFFSETS = [
+    {x: 0, y: 0},
+    {x: -SHIFT_HIT_RADIUS, y: 0},
+    {x: SHIFT_HIT_RADIUS, y: 0},
+    {x: 0, y: -SHIFT_HIT_RADIUS},
+    {x: 0, y: SHIFT_HIT_RADIUS},
+    {x: -SHIFT_HIT_RADIUS / Math.SQRT2, y: -SHIFT_HIT_RADIUS / Math.SQRT2},
+    {x: SHIFT_HIT_RADIUS / Math.SQRT2, y: -SHIFT_HIT_RADIUS / Math.SQRT2},
+    {x: -SHIFT_HIT_RADIUS / Math.SQRT2, y: SHIFT_HIT_RADIUS / Math.SQRT2},
+    {x: SHIFT_HIT_RADIUS / Math.SQRT2, y: SHIFT_HIT_RADIUS / Math.SQRT2}
+  ];
+
   const state = {
     host: null,
     shadow: null,
@@ -11,6 +25,7 @@
     multiSelection: [],
     shiftSelecting: false,
     lastShiftPoint: null,
+    shiftHoverTarget: null,
     listeners: [],
     running: false,
     busy: false,
@@ -100,7 +115,11 @@
         state.shiftSelecting = true;
         state.multiSelection = [];
         state.lastShiftPoint = null;
+        state.shiftHoverTarget = null;
+        state.current = null;
         clearBoxLayers();
+        state.highlight.style.display = "none";
+        state.label.textContent = "";
       }
       collectShiftSelection(event.clientX, event.clientY);
       return;
@@ -178,8 +197,17 @@
   function collectShiftSelection(x, y) {
     const points = sampleMousePath(state.lastShiftPoint, {x, y});
     for (const point of points) {
-      const target = divAtPoint(point.x, point.y);
-      if (target && !state.multiSelection.includes(target)) state.multiSelection.push(target);
+      let preferred = null;
+      for (const offset of SHIFT_HIT_OFFSETS) {
+        const hitX = point.x + offset.x;
+        const hitY = point.y + offset.y;
+        if (hitX < 0 || hitX >= innerWidth || hitY < 0 || hitY >= innerHeight) continue;
+        const target = shiftDivAtPoint(hitX, hitY);
+        if (!target) continue;
+        addShiftCandidate(target);
+        if (!preferred || isAncestorOf(preferred, target)) preferred = target;
+      }
+      if (preferred) state.shiftHoverTarget = preferred;
     }
     state.lastShiftPoint = {x, y};
     if (state.multiSelection.length) paintMultiSelection(state.multiSelection);
@@ -188,7 +216,7 @@
   function sampleMousePath(from, to) {
     if (!from) return [to];
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
-    const steps = Math.max(1, Math.ceil(distance / 6));
+    const steps = Math.max(1, Math.ceil(distance / SHIFT_PATH_STEP));
     return Array.from({length: steps}, (_, index) => {
       const progress = (index + 1) / steps;
       return {
@@ -198,13 +226,79 @@
     });
   }
 
-  function divAtPoint(x, y) {
-    let element = deepElementFromPoint(x, y);
+  function shiftDivAtPoint(x, y) {
+    const hitElement = deepElementFromPoint(x, y);
+    let element = hitElement;
     while (element) {
-      if (element.tagName?.toLowerCase() === "div" && isSelectable(element)) return element;
+      if (element.tagName?.toLowerCase() === "div") {
+        if (state.shiftHoverTarget && isAncestorOf(element, state.shiftHoverTarget) &&
+            pointInsideExpandedRect(x, y, state.shiftHoverTarget, SHIFT_HIT_RADIUS)) {
+          return state.shiftHoverTarget;
+        }
+        return isShiftCandidate(element, hitElement, x, y) ? element : null;
+      }
       element = parentElementAcrossShadow(element);
     }
     return null;
+  }
+
+  function addShiftCandidate(candidate) {
+    if (!isShiftDivCandidate(candidate)) return;
+    if (state.multiSelection.some((selected) => isAncestorOf(candidate, selected))) return;
+    state.multiSelection = state.multiSelection.filter((selected) => !isAncestorOf(selected, candidate));
+    if (!state.multiSelection.includes(candidate)) state.multiSelection.push(candidate);
+  }
+
+  function isShiftDivCandidate(element) {
+    if (!isSelectable(element) || element.tagName?.toLowerCase() !== "div") return false;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    if (rect.width >= innerWidth * 0.9 && rect.height >= innerHeight * 0.9) return false;
+    return true;
+  }
+
+  function isShiftCandidate(element, hitElement, x, y) {
+    if (!isShiftDivCandidate(element)) return false;
+    if (hitElement !== element || !hasStructuralChildren(element)) return true;
+    return hasOwnTextAtPoint(element, x, y);
+  }
+
+  function hasStructuralChildren(element) {
+    if (element.children?.length) return true;
+    return element.shadowRoot?.mode === "open" && Boolean(element.shadowRoot.children?.length);
+  }
+
+  function hasOwnTextAtPoint(element, x, y) {
+    return hasTextNodeAtPoint(element.childNodes, x, y) ||
+      (element.shadowRoot?.mode === "open" && hasTextNodeAtPoint(element.shadowRoot.childNodes, x, y));
+  }
+
+  function hasTextNodeAtPoint(nodes, x, y) {
+    for (const node of nodes || []) {
+      if (node.nodeType !== Node.TEXT_NODE || !node.nodeValue?.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return true;
+      }
+    }
+    return false;
+  }
+
+  function pointInsideExpandedRect(x, y, element, padding) {
+    const rect = element.getBoundingClientRect();
+    return x >= rect.left - padding && x <= rect.right + padding &&
+      y >= rect.top - padding && y <= rect.bottom + padding;
+  }
+
+  function isAncestorOf(ancestor, element) {
+    if (!ancestor || !element || ancestor === element) return false;
+    let node = parentElementAcrossShadow(element);
+    while (node) {
+      if (node === ancestor) return true;
+      node = parentElementAcrossShadow(node);
+    }
+    return false;
   }
 
   function paintMultiSelection(elements) {
@@ -661,6 +755,7 @@
     state.multiSelection = [];
     state.shiftSelecting = false;
     state.lastShiftPoint = null;
+    state.shiftHoverTarget = null;
     state.highlight?.remove();
     state.highlight = null;
     state.label = null;

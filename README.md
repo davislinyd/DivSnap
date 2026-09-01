@@ -7,7 +7,7 @@ DivSnap is a no-bundler Chrome Manifest V3 extension for selecting a DOM element
 - Popup and the Chrome command start the DOM Inspector on the active tab. The popup shows the current shortcut and links to Chrome's shortcut settings. No shortcut is assigned by default; users can choose one in Chrome's shortcut settings.
 - Hover highlights an element and shows its `tag#id.class` selector plus CSS-pixel dimensions.
 - Arrow keys navigate to the parent, first child, previous sibling, or next sibling.
-- Hold `Shift` while moving the mouse to accumulate the divs passed over, including adjacent divs from different parent branches. The path is sampled during fast movement, and only one live union highlight is shown; no marquee or per-div boxes are drawn.
+- Hold `Shift` while moving the mouse to accumulate the nearest usable divs passed over, including adjacent divs from different parent branches. The path and a 6px surrounding hit area are sampled during fast movement. Child divs have priority over an ancestor already in the selection; blank structural containers and page-sized wrappers are ignored, while a container's own text or content remains selectable. Only one live union highlight is shown; no marquee or per-div boxes are drawn.
 - Release `Shift`, then click anywhere to capture one PNG covering the selected divs' union bounds.
 - `Esc` tears down the inspector and removes its listeners and overlay.
 - `Visible` captures the viewport-visible portion of the selected border box.
