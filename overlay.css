@@ -23,6 +23,11 @@
   transition: left 60ms ease-out, top 60ms ease-out, width 60ms ease-out, height 60ms ease-out;
 }
 
+.divsnap-highlight[data-mode="multi"] {
+  border-style: dashed;
+  background: transparent;
+}
+
 .divsnap-label {
   position: absolute;
   left: -2px;

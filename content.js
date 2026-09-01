@@ -8,6 +8,9 @@
     label: null,
     boxLayers: [],
     current: null,
+    multiSelection: [],
+    shiftSelecting: false,
+    lastShiftPoint: null,
     listeners: [],
     running: false,
     busy: false,
@@ -29,6 +32,7 @@
     state.running = true;
     state.busy = false;
     await createOverlay();
+    addListener(window, "mousedown", onMouseDown, true);
     addListener(window, "mousemove", onMouseMove, true);
     addListener(window, "click", onClick, true);
     addListener(window, "keydown", onKeyDown, true);
@@ -78,8 +82,30 @@
     state.listeners.push(() => target.removeEventListener(type, listener, capture));
   }
 
+  function onMouseDown(event) {
+    if (!state.running || state.busy || event.button !== 0) return;
+    if (!state.multiSelection.length || event.shiftKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+  }
+
   function onMouseMove(event) {
     if (!state.running || state.busy) return;
+    if (event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (!state.shiftSelecting) {
+        state.shiftSelecting = true;
+        state.multiSelection = [];
+        state.lastShiftPoint = null;
+        clearBoxLayers();
+      }
+      collectShiftSelection(event.clientX, event.clientY);
+      return;
+    }
+    if (state.multiSelection.length) return;
     updateFromPoint(event.clientX, event.clientY);
   }
 
@@ -88,11 +114,19 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+    if (state.multiSelection.length) {
+      state.busy = true;
+      finishSelection(state.multiSelection.slice(), true).catch((error) => {
+        removeInspector(true);
+        showHud(`Capture failed / 截圖失敗：${error.message || String(error)}`, "error");
+      });
+      return;
+    }
     const target = deepElementFromPoint(event.clientX, event.clientY);
     if (!isSelectable(target)) return;
     state.current = target;
     state.busy = true;
-    finishSelection(target).catch((error) => {
+    finishSelection([target], false).catch((error) => {
       removeInspector(true);
       showHud(`Capture failed / 截圖失敗：${error.message || String(error)}`, "error");
     });
@@ -106,6 +140,7 @@
       removeInspector(false);
       return;
     }
+    if (state.multiSelection.length) return;
     if (!state.current) return;
     let next = null;
     if (event.key === "ArrowUp") next = parentElementAcrossShadow(state.current);
@@ -129,6 +164,8 @@
   function paintTarget(target) {
     if (!state.highlight || !target?.getBoundingClientRect) return;
     const rect = target.getBoundingClientRect();
+    state.highlight.style.display = "block";
+    state.highlight.dataset.mode = "single";
     state.highlight.style.left = `${rect.left}px`;
     state.highlight.style.top = `${rect.top}px`;
     state.highlight.style.width = `${Math.max(0, rect.width)}px`;
@@ -136,6 +173,52 @@
     state.label.textContent = describeElement(target);
     state.label.dataset.below = rect.top < 36 ? "true" : "false";
     paintBoxModel(target, rect);
+  }
+
+  function collectShiftSelection(x, y) {
+    const points = sampleMousePath(state.lastShiftPoint, {x, y});
+    for (const point of points) {
+      const target = divAtPoint(point.x, point.y);
+      if (target && !state.multiSelection.includes(target)) state.multiSelection.push(target);
+    }
+    state.lastShiftPoint = {x, y};
+    if (state.multiSelection.length) paintMultiSelection(state.multiSelection);
+  }
+
+  function sampleMousePath(from, to) {
+    if (!from) return [to];
+    const distance = Math.hypot(to.x - from.x, to.y - from.y);
+    const steps = Math.max(1, Math.ceil(distance / 6));
+    return Array.from({length: steps}, (_, index) => {
+      const progress = (index + 1) / steps;
+      return {
+        x: from.x + (to.x - from.x) * progress,
+        y: from.y + (to.y - from.y) * progress
+      };
+    });
+  }
+
+  function divAtPoint(x, y) {
+    let element = deepElementFromPoint(x, y);
+    while (element) {
+      if (element.tagName?.toLowerCase() === "div" && isSelectable(element)) return element;
+      element = parentElementAcrossShadow(element);
+    }
+    return null;
+  }
+
+  function paintMultiSelection(elements) {
+    const bounds = unionViewportRegion(elements);
+    if (!bounds) return;
+    clearBoxLayers();
+    state.highlight.style.display = "block";
+    state.highlight.dataset.mode = "multi";
+    state.highlight.style.left = `${bounds.left}px`;
+    state.highlight.style.top = `${bounds.top}px`;
+    state.highlight.style.width = `${bounds.width}px`;
+    state.highlight.style.height = `${bounds.height}px`;
+    state.label.textContent = `Selected ${elements.length} divs / 已選取 ${elements.length} 個 div`;
+    state.label.dataset.below = bounds.top < 36 ? "true" : "false";
   }
 
   function paintBoxModel(target, rect) {
@@ -186,7 +269,7 @@
     state.boxLayers = [];
   }
 
-  async function finishSelection(target) {
+  async function finishSelection(elements, multi) {
     const settings = await chrome.storage.sync.get({
       copyToClipboard: true,
       downloadPng: true,
@@ -200,11 +283,16 @@
 
     const dpr = window.devicePixelRatio || 1;
     let result;
-    removeInspector(true);
-    if (settings.captureMode === "full") {
-      result = await captureFull(target, dpr);
+    removeInspector(false);
+    await waitForPaint();
+    if (multi) {
+      result = settings.captureMode === "full"
+        ? await captureFullMulti(elements, dpr)
+        : await captureVisibleMulti(elements, dpr);
     } else {
-      result = await captureVisible(target, dpr);
+      result = settings.captureMode === "full"
+        ? await captureFull(elements[0], dpr)
+        : await captureVisible(elements[0], dpr);
     }
     const blob = await canvasToBlob(result.canvas);
     const messages = [];
@@ -218,7 +306,7 @@
       }));
     }
     if (settings.downloadPng) {
-      const filename = buildFilename(target);
+      const filename = multi ? buildMultiFilename() : buildFilename(elements[0]);
       tasks.push(downloadPng(blob, filename).then(() => messages.push("PNG downloaded / 已下載 PNG")).catch((error) => {
         messages.push(`Download failed / 下載失敗：${error.message || String(error)}`);
       }));
@@ -235,13 +323,22 @@
   async function captureVisible(target, dpr) {
     target.scrollIntoView({block: "nearest", inline: "nearest"});
     await waitForPaint();
-    const rect = target.getBoundingClientRect();
-    const left = Math.max(0, rect.left);
-    const top = Math.max(0, rect.top);
-    const right = Math.min(innerWidth, rect.right);
-    const bottom = Math.min(innerHeight, rect.bottom);
+    return captureVisibleRegion(target.getBoundingClientRect(), dpr);
+  }
+
+  async function captureVisibleMulti(elements, dpr) {
+    const region = unionViewportRegion(elements);
+    if (!region) throw new Error("Selected divs are no longer available.");
+    return captureVisibleRegion(region, dpr);
+  }
+
+  async function captureVisibleRegion(region, dpr) {
+    const left = Math.max(0, region.left);
+    const top = Math.max(0, region.top);
+    const right = Math.min(innerWidth, region.right);
+    const bottom = Math.min(innerHeight, region.bottom);
     if (right <= left || bottom <= top) throw new Error("Element is outside the viewport.");
-    const clipped = left !== rect.left || top !== rect.top || right !== rect.right || bottom !== rect.bottom;
+    const clipped = left !== region.left || top !== region.top || right !== region.right || bottom !== region.bottom;
     const dataUrl = await requestCapture();
     const image = await loadImage(dataUrl);
     const canvas = document.createElement("canvas");
@@ -255,6 +352,68 @@
       Math.round((right - left) * sourceScaleX), Math.round((bottom - top) * sourceScaleY),
       0, 0, canvas.width, canvas.height);
     return {canvas, clipped};
+  }
+
+  async function captureFullMulti(elements, dpr) {
+    const ancestors = sharedScrollableAncestors(elements);
+    if (!ancestors) {
+      const fallback = await captureVisibleMulti(elements, dpr);
+      return {...fallback, notice: "Different scroll containers / 不同捲動容器，改用 Visible"};
+    }
+    const region = unionLayoutRegion(elements, ancestors);
+    if (!region || region.width <= 0 || region.height <= 0) {
+      throw new Error("Selected divs have no capture area.");
+    }
+    if (region.width * dpr > 8192 || region.height * dpr > 8192) {
+      const fallback = await captureVisibleMulti(elements, dpr);
+      return {...fallback, notice: "Full exceeds 8192px / 超過限制，改用 Visible"};
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(region.width * dpr));
+    canvas.height = Math.max(1, Math.round(region.height * dpr));
+    const context = canvas.getContext("2d");
+    const snapshot = saveScrollPositionsForAncestors(ancestors);
+    let y = 0;
+    let guard = 0;
+    try {
+      while (y < region.height - 0.5 && guard++ < 10_000) {
+        let x = 0;
+        let rowBottom = region.height;
+        let rowProgress = false;
+        while (x < region.width - 0.5 && guard++ < 10_000) {
+          const pointX = x === 0 ? region.left : Math.min(region.right - 1, region.left + x + innerWidth - 1);
+          const pointY = y === 0 ? region.top : Math.min(region.bottom - 1, region.top + y + innerHeight - 1);
+          await revealLayoutPoint(pointX, pointY, ancestors);
+          const visible = visibleLayoutIntersection(region, ancestors);
+          const localLeft = clamp(visible.left + layoutScrollOffset(ancestors).x - region.left, 0, region.width);
+          const localTop = clamp(visible.top + layoutScrollOffset(ancestors).y - region.top, 0, region.height);
+          const localRight = clamp(visible.right + layoutScrollOffset(ancestors).x - region.left, 0, region.width);
+          const localBottom = clamp(visible.bottom + layoutScrollOffset(ancestors).y - region.top, 0, region.height);
+          if (visible.width <= 0 || visible.height <= 0 || localBottom <= y || localRight <= x) {
+            throw new Error("Full capture did not make progress.");
+          }
+          const dataUrl = await requestCapture();
+          const image = await loadImage(dataUrl);
+          const sourceScaleX = image.naturalWidth / innerWidth;
+          const sourceScaleY = image.naturalHeight / innerHeight;
+          context.drawImage(image,
+            Math.round(visible.left * sourceScaleX), Math.round(visible.top * sourceScaleY),
+            Math.round(visible.width * sourceScaleX), Math.round(visible.height * sourceScaleY),
+            Math.round(localLeft * dpr), Math.round(localTop * dpr),
+            Math.round((localRight - localLeft) * dpr), Math.round((localBottom - localTop) * dpr));
+          rowBottom = Math.min(rowBottom, localBottom);
+          x = Math.min(region.width, localRight > x + 0.5 ? localRight : x + Math.max(1, visible.width));
+          rowProgress = true;
+        }
+        if (!rowProgress || rowBottom <= y) throw new Error("Full capture did not make vertical progress.");
+        y = Math.min(region.height, rowBottom);
+      }
+      if (y < region.height - 0.5) throw new Error("Full capture was incomplete.");
+      return {canvas, clipped: false};
+    } finally {
+      restoreScrollPositions(snapshot);
+    }
   }
 
   async function captureFull(target, dpr) {
@@ -343,12 +502,12 @@
 
   function scrollableAncestors(target) {
     const result = [];
-    let node = target.parentElement;
-    while (node && node !== document.body && node !== document.documentElement) {
+    let node = parentElementAcrossShadow(target);
+    while (node && node !== document.body && node !== document.documentElement && node !== state.host) {
       if ((node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) && isScrollable(node)) {
         result.push(node);
       }
-      node = node.parentElement;
+      node = parentElementAcrossShadow(node);
     }
     return result;
   }
@@ -359,7 +518,10 @@
   }
 
   function saveScrollPositions(target) {
-    const ancestors = scrollableAncestors(target);
+    return saveScrollPositionsForAncestors(scrollableAncestors(target));
+  }
+
+  function saveScrollPositionsForAncestors(ancestors) {
     return {
       window: {x: scrollX, y: scrollY},
       ancestors: ancestors.map((node) => ({node, left: node.scrollLeft, top: node.scrollTop}))
@@ -372,6 +534,88 @@
       item.node.scrollTop = item.top;
     }
     window.scrollTo(snapshot.window.x, snapshot.window.y);
+  }
+
+  function unionViewportRegion(elements) {
+    return unionRects(elements.map((element) => element.getBoundingClientRect()));
+  }
+
+  function unionLayoutRegion(elements, ancestors) {
+    return unionRects(elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      const offset = layoutScrollOffset(ancestors);
+      return {
+        left: rect.left + scrollX + offset.x,
+        top: rect.top + scrollY + offset.y,
+        right: rect.right + scrollX + offset.x,
+        bottom: rect.bottom + scrollY + offset.y
+      };
+    }));
+  }
+
+  function unionRects(rects) {
+    const visible = rects.filter((rect) => rect.right > rect.left && rect.bottom > rect.top);
+    if (!visible.length) return null;
+    const left = Math.min(...visible.map((rect) => rect.left));
+    const top = Math.min(...visible.map((rect) => rect.top));
+    const right = Math.max(...visible.map((rect) => rect.right));
+    const bottom = Math.max(...visible.map((rect) => rect.bottom));
+    return {left, top, right, bottom, width: right - left, height: bottom - top};
+  }
+
+  function sharedScrollableAncestors(elements) {
+    const lists = elements.map((element) => scrollableAncestors(element));
+    const first = lists[0] || [];
+    return lists.every((list) => list.length === first.length && list.every((node, index) => node === first[index]))
+      ? first
+      : null;
+  }
+
+  function layoutScrollOffset(ancestors) {
+    return ancestors.reduce((offset, ancestor) => ({
+      x: offset.x + ancestor.scrollLeft,
+      y: offset.y + ancestor.scrollTop
+    }), {x: 0, y: 0});
+  }
+
+  function visibleLayoutIntersection(region, ancestors) {
+    const offset = layoutScrollOffset(ancestors);
+    let visible = intersection({
+      left: region.left - scrollX - offset.x,
+      top: region.top - scrollY - offset.y,
+      right: region.right - scrollX - offset.x,
+      bottom: region.bottom - scrollY - offset.y
+    }, innerWidth, innerHeight);
+    for (const ancestor of ancestors) visible = clipRegion(visible, ancestor.getBoundingClientRect());
+    return visible;
+  }
+
+  function clipRegion(region, clip) {
+    const left = Math.max(region.left, clip.left);
+    const top = Math.max(region.top, clip.top);
+    const right = Math.min(region.right, clip.right);
+    const bottom = Math.min(region.bottom, clip.bottom);
+    return {left, top, right, bottom, width: right - left, height: bottom - top};
+  }
+
+  async function revealLayoutPoint(x, y, ancestors) {
+    for (const ancestor of ancestors) {
+      const point = layoutViewportPoint(x, y, ancestors);
+      const rect = ancestor.getBoundingClientRect();
+      if (point.x < rect.left) ancestor.scrollLeft -= rect.left - point.x;
+      else if (point.x >= rect.right) ancestor.scrollLeft += point.x - rect.right + 1;
+      if (point.y < rect.top) ancestor.scrollTop -= rect.top - point.y;
+      else if (point.y >= rect.bottom) ancestor.scrollTop += point.y - rect.bottom + 1;
+    }
+    const point = layoutViewportPoint(x, y, ancestors);
+    if (point.x < 0 || point.x >= innerWidth) window.scrollBy(point.x < 0 ? point.x : point.x - innerWidth + 1, 0);
+    if (point.y < 0 || point.y >= innerHeight) window.scrollBy(0, point.y < 0 ? point.y : point.y - innerHeight + 1);
+    await waitForPaint(1);
+  }
+
+  function layoutViewportPoint(x, y, ancestors) {
+    const offset = layoutScrollOffset(ancestors);
+    return {x: x - scrollX - offset.x, y: y - scrollY - offset.y};
   }
 
   function intersection(rect, viewportWidth, viewportHeight) {
@@ -414,6 +658,9 @@
   function removeInspector(keepHud) {
     for (const remove of state.listeners.splice(0)) remove();
     clearBoxLayers();
+    state.multiSelection = [];
+    state.shiftSelecting = false;
+    state.lastShiftPoint = null;
     state.highlight?.remove();
     state.highlight = null;
     state.label = null;
@@ -533,10 +780,18 @@
   function buildFilename(element) {
     const tag = element.tagName.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     const id = element.id ? `-${element.id.replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-")}` : "";
+    return `divsnap-${tag}${id}-${buildTimestamp()}.png`;
+  }
+
+  function buildMultiFilename() {
+    return `divsnap-multi-${buildTimestamp()}.png`;
+  }
+
+  function buildTimestamp() {
     const date = new Date();
     const stamp = [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join("") + "-" +
       [pad(date.getHours()), pad(date.getMinutes()), pad(date.getSeconds())].join("");
-    return `divsnap-${tag}${id}-${stamp}.png`;
+    return stamp;
   }
 
   function pad(value) {

@@ -7,9 +7,12 @@ DivSnap is a no-bundler Chrome Manifest V3 extension for selecting a DOM element
 - Popup and `Alt+Shift+S` start the DOM Inspector on the active tab.
 - Hover highlights an element and shows its `tag#id.class` selector plus CSS-pixel dimensions.
 - Arrow keys navigate to the parent, first child, previous sibling, or next sibling.
+- Hold `Shift` while moving the mouse to accumulate the divs passed over, including adjacent divs from different parent branches. The path is sampled during fast movement, and only one live union highlight is shown; no marquee or per-div boxes are drawn.
+- Release `Shift`, then click anywhere to capture one PNG covering the selected divs' union bounds.
 - `Esc` tears down the inspector and removes its listeners and overlay.
 - `Visible` captures the viewport-visible portion of the selected border box.
-- `Full` scrolls the page and scrollable ancestors, stitches viewport tiles, and restores scroll positions. It captures the element's layout box, without expanding its internal overflow content.
+- `Full` scrolls the page and compatible scrollable ancestors, stitches viewport tiles, and restores scroll positions. It captures the selected element or multi-selection's layout box, without expanding internal overflow content.
+- If a multi-selection spans different scroll containers or exceeds the canvas limit, `Full` falls back to `Visible` with a warning.
 - Canvas dimensions include `devicePixelRatio` for Retina and other high-density displays.
 - PNG output can be copied with `ClipboardItem` and/or downloaded with a timestamped filename.
 
