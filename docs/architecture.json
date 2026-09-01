@@ -16,7 +16,7 @@
         "id": "inspect-flow",
         "label": "Inspect flow",
         "focus": ["popup", "shortcut", "worker", "inspector", "page"],
-        "note": "Start an inspector session from the popup or keyboard command, then inspect the active page."
+        "note": "Start an inspector session from the popup or the Chrome-managed configurable keyboard command, then inspect the active page."
       },
       {
         "id": "capture-flow",
@@ -47,7 +47,7 @@
       "id": "shortcut",
       "type": "external",
       "label": "Chrome Command",
-      "sublabel": "Alt+Shift+S",
+      "sublabel": "customizable command",
       "tag": "commands",
       "sources": [{"path": "manifest.json", "line": 32}],
       "pos": [55, 105],

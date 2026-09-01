@@ -77,10 +77,18 @@ kbd { margin-left: auto; padding: 4px 6px; color: var(--muted); background: var(
 .primary-button:focus-visible { outline: 3px solid rgba(13, 159, 212, .3); outline-offset: 2px; }
 .primary-button span { color: #6fe0ff; font-size: 16px; line-height: 0; }
 
-.settings, .mode-section { margin-top: 22px; }
+.shortcut-section, .settings, .mode-section { margin-top: 22px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .9px; text-transform: uppercase; }
 .status-dot { width: 7px; height: 7px; background: #38c58a; border-radius: 50%; }
 .unit { color: #9aaaba; font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.shortcut-row { display: flex; align-items: center; gap: 9px; min-height: 57px; border-bottom: 1px solid var(--line); }
+.shortcut-copy { flex: 1; min-width: 0; }
+.shortcut-copy strong { display: block; font-size: 13px; font-weight: 650; }
+.shortcut-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.shortcut-key { flex: 0 0 auto; white-space: nowrap; }
+.secondary-button { flex: 0 0 auto; min-height: 31px; padding: 0 8px; color: var(--navy); background: #fff; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.secondary-button:hover { background: var(--soft); border-color: #b9cfde; }
+.secondary-button:focus-visible { outline: 3px solid rgba(13, 159, 212, .25); outline-offset: 2px; }
 .setting-row { display: flex; align-items: center; min-height: 54px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .setting-copy { flex: 1; }
 .setting-copy strong { display: block; font-size: 13px; font-weight: 650; }

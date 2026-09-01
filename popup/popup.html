@@ -14,7 +14,7 @@
         <h1>DivSnap</h1>
         <p>DOM element capture</p>
       </div>
-      <kbd>⌥⇧S</kbd>
+      <kbd id="shortcut-badge" aria-label="目前快捷鍵">…</kbd>
     </header>
 
     <section class="start-panel">
@@ -26,6 +26,21 @@
       <button id="start" class="primary-button" type="button">
         <span aria-hidden="true">＋</span> Start Inspect
       </button>
+    </section>
+
+    <section class="shortcut-section" aria-labelledby="shortcut-title">
+      <div class="section-heading">
+        <span id="shortcut-title">Keyboard shortcut</span>
+        <span class="unit">Chrome managed</span>
+      </div>
+      <div class="shortcut-row">
+        <div class="shortcut-copy">
+          <strong>Start Inspect</strong>
+          <small>由 Chrome 管理，可自訂組合鍵</small>
+        </div>
+        <kbd id="shortcut-value" class="shortcut-key" aria-label="目前快捷鍵">…</kbd>
+        <button id="shortcut-settings" class="secondary-button" type="button">設定快捷鍵</button>
+      </div>
     </section>
 
     <section class="settings" aria-labelledby="settings-title">

@@ -4,7 +4,7 @@ DivSnap is a no-bundler Chrome Manifest V3 extension for selecting a DOM element
 
 ## Features
 
-- Popup and `Alt+Shift+S` start the DOM Inspector on the active tab.
+- Popup and the Chrome command start the DOM Inspector on the active tab. The popup shows the current shortcut and links to Chrome's shortcut settings. No shortcut is assigned by default; users can choose one in Chrome's shortcut settings.
 - Hover highlights an element and shows its `tag#id.class` selector plus CSS-pixel dimensions.
 - Arrow keys navigate to the parent, first child, previous sibling, or next sibling.
 - Hold `Shift` while moving the mouse to accumulate the divs passed over, including adjacent divs from different parent branches. The path is sampled during fast movement, and only one live union highlight is shown; no marquee or per-div boxes are drawn.
@@ -21,7 +21,7 @@ DivSnap is a no-bundler Chrome Manifest V3 extension for selecting a DOM element
 1. Open `chrome://extensions` and enable **Developer mode**.
 2. Choose **Load unpacked**.
 3. Select the DivSnap directory.
-4. Open the extension popup or press `Alt+Shift+S` on a normal web page.
+4. Open the extension popup or press the configured shortcut on a normal web page.
 
 After source changes, use **Reload** on the DivSnap extension card. The popup settings are stored in `chrome.storage.sync`:
 
@@ -33,12 +33,14 @@ After source changes, use **Reload** on the DivSnap extension card. The popup se
 }
 ```
 
+The Inspector shortcut is managed by Chrome rather than `chrome.storage.sync`. It is unassigned by default. Use the popup's `設定快捷鍵` button or open `chrome://extensions/shortcuts` to assign or clear it; the popup displays the current assignment when reopened.
+
 ## Architecture
 
 Open the [DivSnap MV3 architecture diagram](docs/architecture.html) for an interactive view of the extension boundary, capture flow, and output paths. The validated diagram specification is [docs/architecture.json](docs/architecture.json).
 
 ```text
-Popup / Alt+Shift+S
+Popup / Configured Chrome command
         |
         v
 background.js -- executeScript --> content.js -- DOM inspection --> active page

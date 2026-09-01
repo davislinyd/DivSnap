@@ -31,10 +31,6 @@
   },
   "commands": {
     "start-inspect": {
-      "suggested_key": {
-        "default": "Alt+Shift+S",
-        "mac": "Alt+Shift+S"
-      },
       "description": "Start DOM Inspector"
     }
   },
