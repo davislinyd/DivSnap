@@ -6,6 +6,10 @@
     "output": "architecture.html",
     "locale": "en",
     "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/davislinyd/DivSnap",
+      "revision": "8805febe6e1cbdb448030a63e091abdadba25b4e"
+    },
     "viewBox": [1200, 700],
     "views": [
       {
@@ -126,8 +130,8 @@
       "sublabel": "timestamped PNG",
       "tag": "optional output",
       "sources": [{"path": "background.js", "line": 73}],
-      "pos": [850, 570],
-      "size": [205, 74]
+      "pos": [1050, 570],
+      "size": [125, 74]
     }
   ],
   "boundaries": [
@@ -140,15 +144,15 @@
   "connections": [
     {"id": "popup-start", "from": "popup", "to": "worker", "label": "START_INSPECT", "variant": "emphasis"},
     {"id": "shortcut-start", "from": "shortcut", "to": "worker", "label": "start-inspect", "variant": "emphasis"},
-    {"id": "worker-inject", "from": "worker", "to": "inspector", "label": "executeScript + START_INSPECT"},
+    {"id": "worker-inject", "from": "worker", "to": "inspector", "label": "executeScript + START_INSPECT", "labelDy": 58},
     {"id": "popup-settings", "from": "popup", "to": "settings", "label": "sync settings", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
     {"id": "inspector-settings", "from": "inspector", "to": "settings", "label": "read settings", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
-    {"id": "inspector-page", "from": "inspector", "to": "page", "label": "DOM + scroll", "fromSide": "bottom", "toSide": "top"},
+    {"id": "inspector-page", "from": "inspector", "to": "page", "label": "DOM + scroll", "fromSide": "bottom", "toSide": "top", "labelDy": 24, "labelDx": 80},
     {"id": "inspector-capture", "from": "inspector", "to": "capture", "label": "CAPTURE_VISIBLE", "fromSide": "right", "toSide": "left", "variant": "emphasis"},
     {"id": "capture-worker", "from": "capture", "to": "worker", "label": "PNG data URL", "fromSide": "top", "toSide": "right", "variant": "dashed"},
     {"id": "inspector-composer", "from": "inspector", "to": "composer", "label": "canvas drawImage", "fromSide": "right", "toSide": "left"},
-    {"id": "composer-clipboard", "from": "composer", "to": "clipboard", "label": "ClipboardItem", "fromSide": "bottom", "toSide": "top"},
-    {"id": "composer-downloads", "from": "composer", "to": "downloads", "label": "DOWNLOAD_PNG", "fromSide": "bottom", "toSide": "top", "variant": "emphasis"}
+    {"id": "composer-clipboard", "from": "composer", "to": "clipboard", "label": "ClipboardItem", "fromSide": "bottom", "toSide": "top", "labelDy": 24},
+    {"id": "composer-downloads", "from": "composer", "to": "downloads", "label": "DOWNLOAD_PNG", "fromSide": "right", "toSide": "top", "via": [[1100, 311], [1160, 311], [1160, 545], [1112.5, 545]], "variant": "emphasis"}
   ],
   "cards": [
     {"dot": "cyan", "title": "Capture", "items": ["Visible clamps the border box to the viewport", "Full stitches tiles without expanding overflow content", "Canvas dimensions include devicePixelRatio"]},
