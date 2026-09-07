@@ -3,6 +3,8 @@
 
   const COLLAPSED_PANEL_WIDTH = 182;
   const COLLAPSED_PANEL_HEIGHT = 38;
+  const MAX_SELECTION_HISTORY = 10;
+  const DOUBLE_D_DELAY = 500;
 
   const state = {
     host: null,
@@ -21,6 +23,7 @@
     panelGestureListeners: [],
     panelDragStart: null,
     lastEscapeAt: 0,
+    lastDAt: 0,
     highlight: null,
     label: null,
     boxLayers: [],
@@ -417,6 +420,7 @@
     if (message?.type === "DIVSNAP_PANEL_TOGGLE_COLLAPSE") return setPanelCollapsed(!state.panelCollapsed);
     if (message?.type === "DIVSNAP_PANEL_ESCAPE") return handlePanelEscape();
     if (message?.type === "DIVSNAP_PANEL_ENTER") return handleInspectorEnter();
+    if (message?.type === "DIVSNAP_PANEL_KEYDOWN") return handleSelectionKey(message);
     if (message?.type === "DIVSNAP_PANEL_HEIGHT" && Number.isFinite(message.height) && state.panelBounds && !state.panelResizing) {
       state.panelBounds = clampPanelBounds({...state.panelBounds, height: message.height + 2});
       applyPanelBounds();
@@ -557,24 +561,47 @@
     if (!state.running || state.paused || state.busy) return;
     if (event.key === "Escape") {
       stopPageEvent(event);
+      state.lastDAt = 0;
       if (state.locked) return unlockPreview();
       removeInspector(false);
       return;
     }
     if (isInspectorEvent(event)) return;
-    if (event.key === "Enter") {
-      stopPageEvent(event);
-      handleInspectorEnter();
-    } else if (event.code === "Space") {
-      stopPageEvent(event);
-      unlockPreview();
-    } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
-      stopPageEvent(event);
-      undoSelection();
-    } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
-      stopPageEvent(event);
-      navigate(event.key);
+    if (handleSelectionKey(event)) stopPageEvent(event);
+  }
+
+  function handleSelectionKey(event) {
+    if (!state.running || state.paused || state.busy) return false;
+    const key = String(event.key || "");
+    const isPlainD = !event.ctrlKey && !event.metaKey && !event.altKey && !event.repeat && key.toLowerCase() === "d";
+    if (isPlainD && (state.multiSelection.length || state.locked)) {
+      const now = Date.now();
+      if (now - state.lastDAt <= DOUBLE_D_DELAY) {
+        state.lastDAt = 0;
+        clearSelection();
+      } else {
+        state.lastDAt = now;
+      }
+      return true;
     }
+    state.lastDAt = 0;
+    if (key === "Enter") {
+      handleInspectorEnter();
+      return true;
+    }
+    if (event.code === "Space" || key === " ") {
+      unlockPreview();
+      return true;
+    }
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key.toLowerCase() === "z") {
+      undoSelection();
+      return true;
+    }
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key)) {
+      navigate(key);
+      return true;
+    }
+    return false;
   }
 
   function handleInspectorEnter() {
@@ -682,7 +709,7 @@
   function commitSelection(next) {
     if (next.length === state.multiSelection.length && next.every((element, index) => element === state.multiSelection[index])) return;
     state.history.push(state.multiSelection.slice());
-    if (state.history.length > 50) state.history.shift();
+    if (state.history.length > MAX_SELECTION_HISTORY) state.history.shift();
     state.multiSelection = next;
     for (const element of next) getElementDescriptor(element);
     refreshInspector();
@@ -706,11 +733,19 @@
   }
 
   function undoSelection() {
-    if (!state.history.length) return;
+    if (!state.history.length) {
+      if (state.locked) unlockPreview();
+      return;
+    }
     state.multiSelection = state.history.pop();
+    state.locked = false;
     refreshInspector();
   }
 
+  function clearSelection() {
+    if (state.multiSelection.length) commitSelection([]);
+    if (state.locked) unlockPreview();
+  }
   function captureSelection(settings = state.captureSettings, captureId = null) {
     if (!state.running || state.busy) return;
     state.captureRequested = false;
@@ -1499,6 +1534,7 @@
     state.multiSelection = [];
     state.profileResolution = [];
     state.locked = false;
+    state.lastDAt = 0;
     state.point = null;
     state.pointDirty = false;
     state.candidates = [];

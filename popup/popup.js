@@ -190,6 +190,27 @@ function bindEvents() {
     event.preventDefault();
     postPanelMessage({type: "DIVSNAP_PANEL_ESCAPE"});
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.repeat) return;
+    const target = event.target;
+    const editing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
+    if (editing) return;
+    const key = String(event.key || "");
+    const undo = (event.ctrlKey || event.metaKey) && !event.shiftKey && key.toLowerCase() === "z";
+    const clearChord = !event.ctrlKey && !event.metaKey && !event.altKey && key.toLowerCase() === "d";
+    if (!undo && !clearChord) return;
+    event.preventDefault();
+    postPanelMessage({
+      type: "DIVSNAP_PANEL_KEYDOWN",
+      key,
+      code: event.code,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      repeat: event.repeat
+    });
+  });
   elements.toggleInspect.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.repeat || !state.inspector?.running || state.inspector.paused) return;
     event.preventDefault();
