@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DivSnap 資料夾設定</title>
+  <link rel="stylesheet" href="directory.css">
+</head>
+<body>
+  <main class="settings-card">
+    <header>
+      <img src="../icons/icon-48.png" alt="">
+      <div>
+        <h1>DivSnap 資料夾設定</h1>
+        <p>選擇資料夾後，截圖會直接寫入該位置。</p>
+      </div>
+    </header>
+    <section class="directory-card" aria-live="polite">
+      <strong id="directory-name">尚未選擇資料夾</strong>
+      <span id="directory-status">尚未取得資料夾權限</span>
+    </section>
+    <div class="actions">
+      <button id="choose" type="button">選擇資料夾</button>
+      <button id="reauthorize" class="secondary" type="button">重新授權目前資料夾</button>
+    </div>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="directory.js"></script>
+</body>
+</html>

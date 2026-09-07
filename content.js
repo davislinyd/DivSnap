@@ -1,63 +1,175 @@
 (() => {
   if (globalThis.__divsnapInspector) return;
 
-  const SHIFT_PATH_STEP = 6;
-  const SHIFT_HIT_RADIUS = 6;
-  const SHIFT_HIT_OFFSETS = [
-    {x: 0, y: 0},
-    {x: -SHIFT_HIT_RADIUS, y: 0},
-    {x: SHIFT_HIT_RADIUS, y: 0},
-    {x: 0, y: -SHIFT_HIT_RADIUS},
-    {x: 0, y: SHIFT_HIT_RADIUS},
-    {x: -SHIFT_HIT_RADIUS / Math.SQRT2, y: -SHIFT_HIT_RADIUS / Math.SQRT2},
-    {x: SHIFT_HIT_RADIUS / Math.SQRT2, y: -SHIFT_HIT_RADIUS / Math.SQRT2},
-    {x: -SHIFT_HIT_RADIUS / Math.SQRT2, y: SHIFT_HIT_RADIUS / Math.SQRT2},
-    {x: SHIFT_HIT_RADIUS / Math.SQRT2, y: SHIFT_HIT_RADIUS / Math.SQRT2}
-  ];
+  const COLLAPSED_PANEL_WIDTH = 182;
+  const COLLAPSED_PANEL_HEIGHT = 38;
 
   const state = {
     host: null,
     shadow: null,
+    panelHost: null,
+    panelShadow: null,
+    panelFrame: null,
+    panelResize: null,
+    panelCollapsedBar: null,
+    panelTabId: null,
+    panelBounds: null,
+    panelCollapsed: false,
+    panelDragging: false,
+    panelResizing: false,
+    panelListeners: [],
+    panelGestureListeners: [],
+    panelDragStart: null,
+    lastEscapeAt: 0,
     highlight: null,
     label: null,
     boxLayers: [],
     current: null,
     multiSelection: [],
-    shiftSelecting: false,
-    lastShiftPoint: null,
-    shiftHoverTarget: null,
+    locked: false,
+    point: null,
+    pointDirty: false,
+    candidates: [],
+    branch: [],
+    history: [],
+    frame: null,
+    rectCache: new WeakMap(),
+    selectionBoxes: new Map(),
+    unionBox: null,
+    mutationObserver: null,
+    resizeObserver: null,
+    observedRoots: new Set(),
+    observedElements: new Set(),
     listeners: [],
     running: false,
+    paused: false,
     busy: false,
-    hudTimer: null
+    cancelled: false,
+    sessionId: null,
+    documentToken: createDocumentToken(),
+    captureSettings: {captureMode: "visible"},
+    captureSnapshot: null,
+    captureId: null,
+    captureRequested: false,
+    profileResolution: [],
+    elementDescriptors: new WeakMap()
   };
 
   globalThis.__divsnapInspector = {start};
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type !== "START_INSPECT") return false;
-    start()
+    if (message?.type === "OPEN_PANEL") {
+      openPanel(message)
+        .then(() => sendResponse({ok: true, documentToken: state.documentToken}))
+        .catch((error) => sendResponse({ok: false, error: error.message || String(error)}));
+      return true;
+    }
+    if (message?.type === "CLOSE_PANEL") {
+      if (acceptsIdentity(message)) {
+        state.cancelled = true;
+        if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
+        if (state.running) removeInspector();
+        removePanel();
+      }
+      sendResponse({ok: true});
+      return false;
+    }
+    if (message?.type === "FOCUS_PANEL") {
+      if (acceptsIdentity(message)) focusPanel();
+      sendResponse({ok: true});
+      return false;
+    }
+    if (message?.type !== "INSPECT_COMMAND") return false;
+    handleCommand(message)
       .then(() => sendResponse({ok: true}))
       .catch((error) => sendResponse({ok: false, error: error.message || String(error)}));
     return true;
   });
 
   async function start() {
-    if (state.running) return;
+    if (state.running) {
+      state.paused = false;
+      state.cancelled = false;
+      state.host.style.display = "block";
+      updatePanelOpacity();
+      refreshInspector();
+      setPanelCollapsed(false);
+      return;
+    }
     state.running = true;
+    state.paused = false;
+    state.cancelled = false;
     state.busy = false;
     await createOverlay();
-    addListener(window, "mousedown", onMouseDown, true);
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick", "auxclick", "contextmenu", "dragstart", "selectstart"]) {
+      addListener(window, type, onMouseDown, true);
+    }
+    addListener(window, "pointermove", onMouseMove, true);
     addListener(window, "mousemove", onMouseMove, true);
     addListener(window, "click", onClick, true);
     addListener(window, "keydown", onKeyDown, true);
-    updateFromPoint(innerWidth / 2, innerHeight / 2);
+    addListener(window, "scroll", onLayoutChange, true);
+    addListener(window, "resize", onLayoutChange, true);
+    addListener(window, "transitionend", onLayoutChange, true);
+    addListener(window, "animationend", onLayoutChange, true);
+    state.mutationObserver = new MutationObserver((records) => {
+      if (records.some((record) => !isOverlayNode(record.target))) onLayoutChange();
+    });
+    state.resizeObserver = new ResizeObserver(onLayoutChange);
+    observeRoot(document);
+    state.point = {x: innerWidth / 2, y: innerHeight / 2};
+    onLayoutChange();
+    updatePanelOpacity();
+    setPanelCollapsed(false);
+  }
+
+  async function handleCommand(message) {
+    if (!acceptsIdentity(message)) throw new Error("頁面工作階段已更新 / Page session changed.");
+    if (message.command === "START") {
+      state.captureSettings = {...state.captureSettings, ...message.settings};
+      await start();
+    } else if (message.command === "PAUSE") {
+      state.paused = true;
+      state.host && (state.host.style.display = "block");
+      updatePanelOpacity();
+      sendInspectorState();
+    } else if (message.command === "STOP") {
+      state.cancelled = true;
+      if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
+      removeInspector(false);
+    } else if (message.command === "GET_STATE") {
+      sendInspectorState();
+    } else if (message.command === "CAPTURE") {
+      state.captureSettings = {...state.captureSettings, ...message.settings};
+      captureSelection(state.captureSettings, message.captureId);
+    } else if (message.command === "NAVIGATE") {
+      navigate(message.key);
+    } else if (message.command === "SELECT_CANDIDATE") {
+      const target = state.candidates[message.index];
+      if (isValidTarget(target)) chooseTarget(target);
+    } else if (message.command === "UNLOCK") {
+      unlockPreview();
+    } else if (message.command === "TOGGLE") {
+      toggleCurrent();
+    } else if (message.command === "UNDO") {
+      undoSelection();
+    } else if (message.command === "CLEAR") {
+      commitSelection([]);
+    } else if (message.command === "REMOVE_SELECTION") {
+      removeSelection(message.index);
+    } else if (message.command === "LOAD_PROFILE") {
+      loadProfile(message.targets || []);
+    } else if (message.command === "DISMISS_PROFILE_TARGET") {
+      dismissProfileTarget(message.index);
+    } else if (message.command === "CLEAR_PROFILE") {
+      state.profileResolution = [];
+      sendInspectorState();
+    }
   }
 
   async function createOverlay() {
     if (state.host?.isConnected && state.highlight) return;
     if (state.host?.isConnected) {
-      clearTimeout(state.hudTimer);
       state.host.remove();
       state.host = null;
       state.shadow = null;
@@ -66,7 +178,7 @@
     host.setAttribute("data-divsnap-overlay", "true");
     host.style.position = "fixed";
     host.style.inset = "0";
-    host.style.zIndex = "2147483647";
+    host.style.zIndex = "2147483646";
     host.style.display = "block";
     host.style.pointerEvents = "none";
     const shadow = host.attachShadow({mode: "open"});
@@ -90,6 +202,300 @@
     state.shadow = shadow;
     state.highlight = highlight;
     state.label = label;
+    state.unionBox = document.createElement("div");
+    state.unionBox.className = "divsnap-union";
+    root.append(state.unionBox);
+  }
+
+  async function openPanel(message) {
+    if (state.sessionId && message.sessionId && state.sessionId !== message.sessionId && state.running) removeInspector();
+    state.sessionId = message.sessionId || state.sessionId;
+    state.panelTabId = message.tabId ?? state.panelTabId;
+    await createPanel();
+    const panelUrl = buildPanelUrl();
+    if (state.panelFrame.src !== panelUrl) state.panelFrame.src = panelUrl;
+    clampPanelToViewport();
+    updatePanelOpacity();
+  }
+
+  async function createPanel() {
+    if (state.panelHost?.isConnected && state.panelFrame) return;
+    const host = document.createElement("div");
+    host.setAttribute("data-divsnap-panel", "true");
+    host.style.position = "fixed";
+    host.style.zIndex = "2147483647";
+    host.style.pointerEvents = "auto";
+    host.style.display = "block";
+    const shadow = host.attachShadow({mode: "open"});
+    const style = document.createElement("style");
+    style.textContent = `
+      :host { all: initial; }
+      .panel { position: relative; display: flex; width: 100%; height: 100%; overflow: hidden; flex-direction: column; color: #10263f; background: #f7fafc; border: 1px solid #9eb8ca; border-radius: 10px; box-shadow: 0 12px 34px rgba(9, 36, 65, .28); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .panel { box-sizing: border-box; }
+      iframe { display: block; width: 100%; height: 100%; min-height: 0; flex: 1 1 auto; border: 0; background: #f7fafc; }
+      .collapsed { box-sizing: border-box; display: flex; width: 100%; height: 100%; align-items: center; gap: 8px; padding: 0 7px 0 8px; color: #10263f; background: #f7fafc; cursor: grab; font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; touch-action: none; user-select: none; }
+      .collapsed:active { cursor: grabbing; }
+      .collapsed strong { display: flex; align-items: center; gap: 8px; }
+      .collapsed img { width: 22px; height: 22px; border-radius: 6px; }
+      .collapsed-action { margin-left: auto; padding: 0; color: #0d759e; background: transparent; border: 0; cursor: pointer; font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .collapsed-action:hover { color: #073f5c; }
+      [hidden] { display: none !important; }
+      .resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
+      .resize::after { position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; border-right: 2px solid #6f8297; border-bottom: 2px solid #6f8297; content: ""; }
+    `;
+    const panel = document.createElement("section");
+    panel.className = "panel";
+    panel.setAttribute("aria-label", "DivSnap 頁內控制面板");
+    const frame = document.createElement("iframe");
+    frame.title = "DivSnap 控制面板";
+    frame.setAttribute("allow", "clipboard-write");
+    const collapsedBar = document.createElement("div");
+    collapsedBar.className = "collapsed";
+    collapsedBar.setAttribute("aria-label", "拖曳移動 DivSnap 控制面板");
+    collapsedBar.hidden = true;
+    const collapsedTitle = document.createElement("strong");
+    const collapsedIcon = document.createElement("img");
+    collapsedIcon.src = chrome.runtime.getURL("icons/icon-32.png");
+    collapsedIcon.alt = "";
+    collapsedTitle.textContent = "DivSnap";
+    collapsedTitle.prepend(collapsedIcon);
+    const collapsedAction = document.createElement("button");
+    collapsedAction.className = "collapsed-action";
+    collapsedAction.type = "button";
+    collapsedAction.setAttribute("aria-label", "展開 DivSnap 控制面板");
+    collapsedAction.textContent = "展開";
+    collapsedBar.append(collapsedTitle, collapsedAction);
+    const resize = document.createElement("div");
+    resize.className = "resize";
+    resize.setAttribute("role", "button");
+    resize.setAttribute("aria-label", "縮放 DivSnap 面板");
+    panel.append(collapsedBar, frame, resize);
+    shadow.append(style, panel);
+    (document.documentElement || document.body).append(host);
+    state.panelHost = host;
+    state.panelShadow = shadow;
+    state.panelFrame = frame;
+    state.panelResize = resize;
+    state.panelCollapsedBar = collapsedBar;
+    state.panelBounds = null;
+    addPanelListener(resize, "pointerdown", (event) => beginPanelGesture(event, "resize"));
+    addPanelListener(collapsedBar, "pointerdown", (event) => beginPanelGesture(event, "drag"));
+    addPanelListener(collapsedAction, "pointerdown", (event) => event.stopPropagation());
+    addPanelListener(collapsedAction, "click", (event) => {
+      event.stopPropagation();
+      setPanelCollapsed(false);
+    });
+    addPanelListener(frame, "load", () => postPanelCollapsed(false));
+    addPanelListener(window, "message", onPanelMessage);
+    addPanelListener(window, "resize", clampPanelToViewport);
+    addPanelListener(window, "keydown", (event) => {
+      if (event.key !== "Escape" || event.repeat) return;
+      if (state.running && state.locked) return;
+      stopPageEvent(event);
+      handlePanelEscape();
+    }, true);
+    addPanelListener(window, "pointerup", stopIframeDrag, true);
+    addPanelListener(window, "mouseup", stopIframeDrag, true);
+    addPanelListener(window, "pointercancel", stopIframeDrag, true);
+    await loadPanelBounds();
+    updatePanelOpacity();
+  }
+
+  function addPanelListener(target, type, listener, options) {
+    target.addEventListener(type, listener, options);
+    state.panelListeners.push(() => target.removeEventListener(type, listener, options));
+  }
+
+  function buildPanelUrl() {
+    const url = new URL(chrome.runtime.getURL("popup/popup.html"));
+    url.searchParams.set("tabId", String(state.panelTabId));
+    url.searchParams.set("sessionId", String(state.sessionId));
+    url.searchParams.set("documentToken", state.documentToken);
+    return url.href;
+  }
+
+  async function loadPanelBounds() {
+    const stored = await chrome.storage.local.get({panelBounds: null}).catch(() => ({panelBounds: null}));
+    state.panelBounds = clampPanelBounds(stored.panelBounds || {right: 16, top: 16, width: 420, height: 420});
+    applyPanelBounds();
+  }
+
+  function clampPanelToViewport() {
+    if (!state.panelHost) return;
+    if (!state.panelCollapsed) state.panelBounds = clampPanelBounds(state.panelBounds || {right: 16, top: 16, width: 420, height: 420});
+    applyPanelBounds();
+  }
+
+  function clampPanelBounds(bounds) {
+    const minWidth = Math.min(320, innerWidth);
+    const minHeight = Math.min(180, innerHeight);
+    const width = clamp(Number.isFinite(bounds?.width) ? bounds.width : 420, minWidth, Math.min(900, innerWidth));
+    const height = clamp(Number.isFinite(bounds?.height) ? bounds.height : 420, minHeight, Math.min(1200, innerHeight));
+    const left = clamp(Number.isFinite(bounds?.left) ? bounds.left : innerWidth - width - 16, 0, Math.max(0, innerWidth - width));
+    const top = clamp(Number.isFinite(bounds?.top) ? bounds.top : 16, 0, Math.max(0, innerHeight - height));
+    return {left: Math.round(left), top: Math.round(top), width: Math.round(width), height: Math.round(height)};
+  }
+
+  function applyPanelBounds() {
+    if (!state.panelHost || !state.panelBounds) return;
+    if (state.panelFrame) state.panelFrame.hidden = state.panelCollapsed;
+    if (state.panelResize) state.panelResize.hidden = state.panelCollapsed;
+    if (state.panelCollapsedBar) state.panelCollapsedBar.hidden = !state.panelCollapsed;
+    if (!state.panelCollapsed) {
+      for (const [key, value] of Object.entries(state.panelBounds)) state.panelHost.style[key] = `${value}px`;
+      return;
+    }
+    const width = Math.min(COLLAPSED_PANEL_WIDTH, innerWidth);
+    const height = Math.min(COLLAPSED_PANEL_HEIGHT, innerHeight);
+    state.panelHost.style.left = `${clamp(state.panelBounds.left, 0, Math.max(0, innerWidth - width))}px`;
+    state.panelHost.style.top = `${clamp(state.panelBounds.top, 0, Math.max(0, innerHeight - height))}px`;
+    state.panelHost.style.width = `${width}px`;
+    state.panelHost.style.height = `${height}px`;
+  }
+
+  function setPanelCollapsed(collapsed) {
+    if (!state.panelHost || state.panelCollapsed === collapsed) return;
+    state.panelCollapsed = collapsed;
+    if (!collapsed) state.panelBounds = clampPanelBounds(state.panelBounds);
+    applyPanelBounds();
+  }
+
+  function postPanelCollapsed(collapsed = false) {
+    state.panelFrame?.contentWindow?.postMessage({type: "DIVSNAP_PANEL_COLLAPSED", collapsed}, new URL(chrome.runtime.getURL("/")).origin);
+  }
+
+  function persistPanelBounds() {
+    if (!state.panelBounds) return;
+    chrome.storage.local.set({panelBounds: state.panelBounds}).catch(() => {});
+  }
+
+  function beginPanelGesture(event, type) {
+    if (event.button !== 0 || !(event.buttons & 1) || !state.panelBounds) return;
+    for (const remove of state.panelGestureListeners.splice(0)) remove();
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    try { target.setPointerCapture(pointerId); } catch {}
+    event.preventDefault();
+    event.stopPropagation();
+    state.panelDragging = type === "drag";
+    state.panelResizing = type === "resize";
+    const start = {x: event.clientX, y: event.clientY, ...state.panelBounds};
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== undefined && moveEvent.pointerId !== pointerId) return;
+      if (!((moveEvent.buttons ?? 0) & 1)) return end(moveEvent);
+      moveEvent.preventDefault();
+      moveEvent.stopImmediatePropagation();
+      const deltaX = moveEvent.clientX - start.x;
+      const deltaY = moveEvent.clientY - start.y;
+      state.panelBounds = type === "drag"
+        ? clampPanelBounds({left: start.left + deltaX, top: start.top + deltaY, width: start.width, height: start.height})
+        : clampPanelBounds({left: start.left, top: start.top, width: start.width + deltaX, height: start.height + deltaY});
+      applyPanelBounds();
+    };
+    const end = (endEvent) => {
+      if (endEvent?.pointerId !== undefined && endEvent.pointerId !== pointerId) return;
+      for (const remove of state.panelGestureListeners.splice(0)) remove();
+      try { if (pointerId !== undefined && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId); } catch {}
+      state.panelDragging = false;
+      state.panelResizing = false;
+      persistPanelBounds();
+      updatePanelOpacity();
+    };
+    for (const [surface, name, listener] of [[window, "pointermove", move], [window, "pointerup", end], [window, "pointercancel", end], [target, "lostpointercapture", end], [window, "blur", end]]) {
+      surface.addEventListener(name, listener, true);
+      state.panelGestureListeners.push(() => surface.removeEventListener(name, listener, true));
+    }
+    window.addEventListener("mouseup", end, true);
+    state.panelGestureListeners.push(() => window.removeEventListener("mouseup", end, true));
+    updatePanelOpacity();
+  }
+
+  function onPanelMessage(event) {
+    if (event.source !== state.panelFrame?.contentWindow || event.origin !== new URL(chrome.runtime.getURL("/")).origin) return;
+    const message = event.data;
+    if (message?.type === "DIVSNAP_PANEL_CLOSE") return closePanelByUser();
+    if (message?.type === "DIVSNAP_PANEL_TOGGLE_COLLAPSE") return setPanelCollapsed(!state.panelCollapsed);
+    if (message?.type === "DIVSNAP_PANEL_ESCAPE") return handlePanelEscape();
+    if (message?.type === "DIVSNAP_PANEL_ENTER") return handleInspectorEnter();
+    if (message?.type === "DIVSNAP_PANEL_HEIGHT" && Number.isFinite(message.height) && state.panelBounds && !state.panelResizing) {
+      state.panelBounds = clampPanelBounds({...state.panelBounds, height: message.height + 2});
+      applyPanelBounds();
+      persistPanelBounds();
+    } else if (message?.type === "DIVSNAP_PANEL_DRAG_START" && state.panelBounds && Number.isFinite(message.x) && Number.isFinite(message.y)) {
+      state.panelDragStart = {...state.panelBounds, x: message.x, y: message.y};
+      state.panelDragging = true;
+    } else if (message?.type === "DIVSNAP_PANEL_DRAG_MOVE" && state.panelDragStart && Number.isFinite(message.x) && Number.isFinite(message.y)) {
+      if (message.buttons === 0) stopIframeDrag();
+      else {
+        const start = state.panelDragStart;
+        state.panelBounds = clampPanelBounds({...start, left: start.left + message.x - start.x, top: start.top + message.y - start.y});
+        applyPanelBounds();
+      }
+    } else if (message?.type === "DIVSNAP_PANEL_DRAG_END") {
+      stopIframeDrag();
+    }
+    updatePanelOpacity();
+  }
+
+  function stopIframeDrag() {
+    if (!state.panelDragging && !state.panelDragStart) return;
+    state.panelDragStart = null;
+    state.panelDragging = false;
+    persistPanelBounds();
+    updatePanelOpacity();
+  }
+
+  function handlePanelEscape() {
+    if (state.running && state.locked) {
+      state.lastEscapeAt = 0;
+      unlockPreview();
+      return;
+    }
+    const now = Date.now();
+    if (state.lastEscapeAt && now - state.lastEscapeAt <= 500) return closePanelByUser();
+    state.lastEscapeAt = now;
+    if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
+    if (state.running) removeInspector();
+  }
+
+  function focusPanel() {
+    state.panelFrame?.focus();
+    updatePanelOpacity();
+  }
+
+  function updatePanelOpacity() {
+    if (!state.panelHost) return;
+    state.panelHost.style.opacity = "1";
+    state.panelHost.style.transition = "";
+  }
+
+  function closePanelByUser() {
+    state.cancelled = true;
+    if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
+    if (state.running) removeInspector();
+    removePanel();
+    chrome.runtime.sendMessage({type: "PANEL_CLOSED", sessionId: state.sessionId, documentToken: state.documentToken}).catch?.(() => {});
+  }
+
+  function removePanel() {
+    for (const remove of state.panelGestureListeners.splice(0)) remove();
+    for (const remove of state.panelListeners.splice(0)) remove();
+    state.panelHost?.remove();
+    state.panelHost = null;
+    state.panelShadow = null;
+    state.panelFrame = null;
+    state.panelResize = null;
+    state.panelCollapsedBar = null;
+    state.panelBounds = null;
+    state.panelCollapsed = false;
+    state.panelDragging = false;
+    state.panelResizing = false;
+    state.panelDragStart = null;
+    state.lastEscapeAt = 0;
+  }
+
+  function acceptsIdentity(message) {
+    return message.sessionId === state.sessionId && message.documentToken === state.documentToken;
   }
 
   function addListener(target, type, listener, capture = false) {
@@ -97,198 +503,250 @@
     state.listeners.push(() => target.removeEventListener(type, listener, capture));
   }
 
-  function onMouseDown(event) {
-    if (!state.running || state.busy || event.button !== 0) return;
-    if (!state.multiSelection.length || event.shiftKey) return;
+  function isOverlayNode(node) {
+    return node === state.host || node === state.panelHost || state.host?.contains(node) || state.panelHost?.contains(node) || node?.getRootNode() === state.shadow || node?.getRootNode() === state.panelShadow;
+  }
+
+  function isInspectorEvent(event) {
+    const path = event.composedPath();
+    return path.includes(state.host) || path.includes(state.panelHost);
+  }
+
+  function stopPageEvent(event) {
     event.preventDefault();
-    event.stopPropagation();
     event.stopImmediatePropagation();
+  }
+
+  function onMouseDown(event) {
+    if (state.panelDragging || state.panelResizing) return;
+    if (!state.running || state.paused || state.busy || isInspectorEvent(event)) return;
+    stopPageEvent(event);
+    if (event.button !== 0 || !["pointerdown", "mousedown"].includes(event.type) || state.locked) return;
+    if (state.point?.x !== event.clientX || state.point?.y !== event.clientY) {
+      state.point = {x: event.clientX, y: event.clientY};
+      state.pointDirty = true;
+    }
+    if (state.pointDirty) refreshInspector();
   }
 
   function onMouseMove(event) {
-    if (!state.running || state.busy) return;
-    if (event.shiftKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      if (!state.shiftSelecting) {
-        state.shiftSelecting = true;
-        state.multiSelection = [];
-        state.lastShiftPoint = null;
-        state.shiftHoverTarget = null;
-        state.current = null;
-        clearBoxLayers();
-        state.highlight.style.display = "none";
-        state.label.textContent = "";
-      }
-      collectShiftSelection(event.clientX, event.clientY);
-      return;
+    if (state.panelDragging || state.panelResizing) return;
+    if (!state.running || state.paused || state.busy || isInspectorEvent(event)) return;
+    stopPageEvent(event);
+    state.point = {x: event.clientX, y: event.clientY};
+    if (!state.locked) {
+      state.pointDirty = true;
+      scheduleRefresh();
     }
-    if (state.multiSelection.length) return;
-    updateFromPoint(event.clientX, event.clientY);
   }
 
   function onClick(event) {
-    if (!state.running || state.busy) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-    if (state.multiSelection.length) {
-      state.busy = true;
-      finishSelection(state.multiSelection.slice(), true).catch((error) => {
-        removeInspector(true);
-        showHud(`Capture failed / 截圖失敗：${error.message || String(error)}`, "error");
-      });
-      return;
+    if (state.panelDragging || state.panelResizing) return;
+    if (!state.running || state.paused || state.busy || isInspectorEvent(event)) return;
+    stopPageEvent(event);
+    if (event.button !== 0 || !isValidTarget(state.current)) return;
+    if (event.shiftKey) toggleCurrent();
+    else {
+      state.locked = true;
+      state.pointDirty = false;
+      refreshInspector();
     }
-    const target = deepElementFromPoint(event.clientX, event.clientY);
-    if (!isSelectable(target)) return;
-    state.current = target;
-    state.busy = true;
-    finishSelection([target], false).catch((error) => {
-      removeInspector(true);
-      showHud(`Capture failed / 截圖失敗：${error.message || String(error)}`, "error");
-    });
   }
 
   function onKeyDown(event) {
-    if (!state.running || state.busy) return;
+    if (!state.running || state.paused || state.busy) return;
     if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      stopPageEvent(event);
+      if (state.locked) return unlockPreview();
       removeInspector(false);
       return;
     }
-    if (state.multiSelection.length) return;
-    if (!state.current) return;
-    let next = null;
-    if (event.key === "ArrowUp") next = parentElementAcrossShadow(state.current);
-    if (event.key === "ArrowDown") next = state.current.firstElementChild;
-    if (event.key === "ArrowLeft") next = state.current.previousElementSibling;
-    if (event.key === "ArrowRight") next = state.current.nextElementSibling;
-    if (!isSelectable(next)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    state.current = next;
-    paintTarget(next);
+    if (isInspectorEvent(event)) return;
+    if (event.key === "Enter") {
+      stopPageEvent(event);
+      handleInspectorEnter();
+    } else if (event.code === "Space") {
+      stopPageEvent(event);
+      unlockPreview();
+    } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
+      stopPageEvent(event);
+      undoSelection();
+    } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+      stopPageEvent(event);
+      navigate(event.key);
+    }
+  }
+
+  function handleInspectorEnter() {
+    if (!state.running || state.paused || state.busy) return;
+    if (state.locked) requestKeyboardCapture();
+    else if (state.multiSelection.length || isValidTarget(state.current)) {
+      state.locked = true;
+      state.pointDirty = false;
+      refreshInspector();
+    }
+  }
+
+  function rectFor(element) {
+    if (!state.rectCache.has(element)) state.rectCache.set(element, element.getBoundingClientRect());
+    return state.rectCache.get(element);
+  }
+
+  function isValidTarget(element) {
+    if (!isSelectable(element) || !element.isConnected || element === document.body || element === document.documentElement) return false;
+    const rect = rectFor(element);
+    if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return false;
+    if (element.checkVisibility) return element.checkVisibility({visibilityProperty: true, opacityProperty: true, contentVisibilityAuto: true});
+    const styles = getComputedStyle(element);
+    return styles.visibility === "visible" && styles.display !== "none";
+  }
+
+  function ancestorChain(element) {
+    const chain = [];
+    while (element && element !== document.body && element !== document.documentElement) {
+      if (isValidTarget(element)) chain.push(element);
+      element = parentElementAcrossShadow(element);
+    }
+    return chain;
+  }
+
+  function candidatesAtPoint(clientX, clientY) {
+    const candidates = new Set();
+    const visited = new Set();
+    function visit(root) {
+      if (visited.has(root)) return;
+      visited.add(root);
+      observeRoot(root);
+      for (const element of root.elementsFromPoint(clientX, clientY)) {
+        if (isOverlayNode(element)) continue;
+        if (element.shadowRoot?.mode === "open") visit(element.shadowRoot);
+        for (const candidate of ancestorChain(element)) candidates.add(candidate);
+      }
+    }
+    visit(document);
+    return [...candidates];
   }
 
   function updateFromPoint(x, y) {
-    const target = deepElementFromPoint(x, y);
-    if (!isSelectable(target)) return;
-    state.current = target;
-    paintTarget(target);
+    state.candidates = candidatesAtPoint(x, y);
+    state.current = state.candidates[0] || null;
+    state.branch = state.current ? ancestorChain(state.current) : [];
   }
 
-  function paintTarget(target) {
-    if (!state.highlight || !target?.getBoundingClientRect) return;
-    const rect = target.getBoundingClientRect();
-    state.highlight.style.display = "block";
-    state.highlight.dataset.mode = "single";
-    state.highlight.style.left = `${rect.left}px`;
-    state.highlight.style.top = `${rect.top}px`;
-    state.highlight.style.width = `${Math.max(0, rect.width)}px`;
-    state.highlight.style.height = `${Math.max(0, rect.height)}px`;
-    state.label.textContent = describeElement(target);
-    state.label.dataset.below = rect.top < 36 ? "true" : "false";
-    paintBoxModel(target, rect);
-  }
-
-  function collectShiftSelection(x, y) {
-    const points = sampleMousePath(state.lastShiftPoint, {x, y});
-    for (const point of points) {
-      let preferred = null;
-      for (const offset of SHIFT_HIT_OFFSETS) {
-        const hitX = point.x + offset.x;
-        const hitY = point.y + offset.y;
-        if (hitX < 0 || hitX >= innerWidth || hitY < 0 || hitY >= innerHeight) continue;
-        const target = shiftDivAtPoint(hitX, hitY);
-        if (!target) continue;
-        addShiftCandidate(target);
-        if (!preferred || isAncestorOf(preferred, target)) preferred = target;
-      }
-      if (preferred) state.shiftHoverTarget = preferred;
+  function chooseTarget(target) {
+    state.rectCache = new WeakMap();
+    if (!isValidTarget(target)) return;
+    if (!state.branch.includes(target)) {
+      const leaf = state.candidates.find((candidate) => candidate === target || isAncestorOf(target, candidate)) || target;
+      state.branch = ancestorChain(leaf);
     }
-    state.lastShiftPoint = {x, y};
-    if (state.multiSelection.length) paintMultiSelection(state.multiSelection);
+    state.current = target;
+    state.locked = true;
+    refreshInspector();
   }
 
-  function sampleMousePath(from, to) {
-    if (!from) return [to];
-    const distance = Math.hypot(to.x - from.x, to.y - from.y);
-    const steps = Math.max(1, Math.ceil(distance / SHIFT_PATH_STEP));
-    return Array.from({length: steps}, (_, index) => {
-      const progress = (index + 1) / steps;
-      return {
-        x: from.x + (to.x - from.x) * progress,
-        y: from.y + (to.y - from.y) * progress
-      };
+  function sameBounds(first, second) {
+    const firstRect = rectFor(first);
+    const secondRect = rectFor(second);
+    return ["left", "top", "right", "bottom"].every((edge) => Math.abs(firstRect[edge] - secondRect[edge]) <= 1);
+  }
+
+  function navigate(key) {
+    state.rectCache = new WeakMap();
+    if (!isValidTarget(state.current)) return;
+    let next = null;
+    if (key === "ArrowUp" || key === "ArrowDown") {
+      const direction = key === "ArrowUp" ? 1 : -1;
+      const index = state.branch.indexOf(state.current);
+      for (let cursor = index + direction; index >= 0 && cursor >= 0 && cursor < state.branch.length; cursor += direction) {
+        const candidate = state.branch[cursor];
+        if (isValidTarget(candidate) && !sameBounds(state.current, candidate)) {
+          next = candidate;
+          break;
+        }
+      }
+    } else {
+      const property = key === "ArrowLeft" ? "previousElementSibling" : "nextElementSibling";
+      next = state.current[property];
+      while (next && !isValidTarget(next)) next = next[property];
+    }
+    if (next) chooseTarget(next);
+  }
+
+  function unlockPreview() {
+    state.locked = false;
+    state.pointDirty = true;
+    refreshInspector();
+  }
+
+  function commitSelection(next) {
+    if (next.length === state.multiSelection.length && next.every((element, index) => element === state.multiSelection[index])) return;
+    state.history.push(state.multiSelection.slice());
+    if (state.history.length > 50) state.history.shift();
+    state.multiSelection = next;
+    for (const element of next) getElementDescriptor(element);
+    refreshInspector();
+  }
+
+  function toggleCurrent() {
+    state.rectCache = new WeakMap();
+    const target = state.current;
+    if (!isValidTarget(target)) return;
+    const next = state.multiSelection.includes(target)
+      ? state.multiSelection.filter((element) => element !== target)
+      : [...state.multiSelection.filter((element) => !isAncestorOf(element, target) && !isAncestorOf(target, element)), target];
+    state.locked = false;
+    state.pointDirty = false;
+    commitSelection(next);
+  }
+
+  function removeSelection(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= state.multiSelection.length) return;
+    commitSelection(state.multiSelection.filter((element, elementIndex) => elementIndex !== index));
+  }
+
+  function undoSelection() {
+    if (!state.history.length) return;
+    state.multiSelection = state.history.pop();
+    refreshInspector();
+  }
+
+  function captureSelection(settings = state.captureSettings, captureId = null) {
+    if (!state.running || state.busy) return;
+    state.captureRequested = false;
+    state.rectCache = new WeakMap();
+    const elements = state.multiSelection.length ? state.multiSelection.slice() : state.locked && state.current ? [state.current] : [];
+    state.captureId = captureId || `capture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (!elements.length || elements.some((element) => !isValidTarget(element)) || state.profileResolution.some((item) => item.status !== "resolved")) {
+      refreshInspector();
+      sendCaptureResult(false, "目標已失效或 Profile 尚未完成解析。");
+      return;
+    }
+    state.busy = true;
+    finishSelection(elements, elements.length > 1, settings).catch((error) => {
+      state.busy = false;
+      if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
+      state.captureSnapshot = null;
+      if (state.running && !state.cancelled) {
+        state.paused = true;
+        sendCaptureResult(false, error.message || String(error));
+        state.captureId = null;
+        updatePanelOpacity();
+        sendInspectorState(`Capture failed / 截圖失敗：${error.message || String(error)}`);
+      }
     });
   }
 
-  function shiftDivAtPoint(x, y) {
-    const hitElement = deepElementFromPoint(x, y);
-    let element = hitElement;
-    while (element) {
-      if (element.tagName?.toLowerCase() === "div") {
-        if (state.shiftHoverTarget && isAncestorOf(element, state.shiftHoverTarget) &&
-            pointInsideExpandedRect(x, y, state.shiftHoverTarget, SHIFT_HIT_RADIUS)) {
-          return state.shiftHoverTarget;
-        }
-        return isShiftCandidate(element, hitElement, x, y) ? element : null;
-      }
-      element = parentElementAcrossShadow(element);
-    }
-    return null;
-  }
-
-  function addShiftCandidate(candidate) {
-    if (!isShiftDivCandidate(candidate)) return;
-    if (state.multiSelection.some((selected) => isAncestorOf(candidate, selected))) return;
-    state.multiSelection = state.multiSelection.filter((selected) => !isAncestorOf(selected, candidate));
-    if (!state.multiSelection.includes(candidate)) state.multiSelection.push(candidate);
-  }
-
-  function isShiftDivCandidate(element) {
-    if (!isSelectable(element) || element.tagName?.toLowerCase() !== "div") return false;
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    if (rect.width >= innerWidth * 0.9 && rect.height >= innerHeight * 0.9) return false;
-    return true;
-  }
-
-  function isShiftCandidate(element, hitElement, x, y) {
-    if (!isShiftDivCandidate(element)) return false;
-    if (hitElement !== element || !hasStructuralChildren(element)) return true;
-    return hasOwnTextAtPoint(element, x, y);
-  }
-
-  function hasStructuralChildren(element) {
-    if (element.children?.length) return true;
-    return element.shadowRoot?.mode === "open" && Boolean(element.shadowRoot.children?.length);
-  }
-
-  function hasOwnTextAtPoint(element, x, y) {
-    return hasTextNodeAtPoint(element.childNodes, x, y) ||
-      (element.shadowRoot?.mode === "open" && hasTextNodeAtPoint(element.shadowRoot.childNodes, x, y));
-  }
-
-  function hasTextNodeAtPoint(nodes, x, y) {
-    for (const node of nodes || []) {
-      if (node.nodeType !== Node.TEXT_NODE || !node.nodeValue?.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
-        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return true;
-      }
-    }
-    return false;
-  }
-
-  function pointInsideExpandedRect(x, y, element, padding) {
-    const rect = element.getBoundingClientRect();
-    return x >= rect.left - padding && x <= rect.right + padding &&
-      y >= rect.top - padding && y <= rect.bottom + padding;
+  function requestKeyboardCapture() {
+    if (state.captureRequested) return;
+    state.captureRequested = true;
+    chrome.runtime.sendMessage({
+      type: "CAPTURE_REQUEST",
+      sessionId: state.sessionId,
+      documentToken: state.documentToken
+    }).then((response) => {
+      if (!response?.ok) state.captureRequested = false;
+    }).catch(() => { state.captureRequested = false; });
   }
 
   function isAncestorOf(ancestor, element) {
@@ -301,18 +759,105 @@
     return false;
   }
 
-  function paintMultiSelection(elements) {
-    const bounds = unionViewportRegion(elements);
-    if (!bounds) return;
-    clearBoxLayers();
-    state.highlight.style.display = "block";
-    state.highlight.dataset.mode = "multi";
-    state.highlight.style.left = `${bounds.left}px`;
-    state.highlight.style.top = `${bounds.top}px`;
-    state.highlight.style.width = `${bounds.width}px`;
-    state.highlight.style.height = `${bounds.height}px`;
-    state.label.textContent = `Selected ${elements.length} divs / 已選取 ${elements.length} 個 div`;
-    state.label.dataset.below = bounds.top < 36 ? "true" : "false";
+  function observeRoot(root) {
+    if (!state.mutationObserver || state.observedRoots.has(root)) return;
+    state.mutationObserver.observe(root === document ? document.documentElement : root, {childList: true, attributes: true, characterData: true, subtree: true});
+    state.observedRoots.add(root);
+  }
+
+  function observeTargets() {
+    const elements = new Set();
+    for (const target of [state.current, ...state.multiSelection]) {
+      let element = target;
+      while (element?.isConnected && !isOverlayNode(element)) {
+        elements.add(element);
+        element = parentElementAcrossShadow(element);
+      }
+    }
+    for (const element of state.observedElements) {
+      if (!elements.has(element)) state.resizeObserver.unobserve(element);
+    }
+    for (const element of elements) {
+      if (!state.observedElements.has(element)) state.resizeObserver.observe(element);
+    }
+    state.observedElements = elements;
+  }
+
+  function onLayoutChange() {
+    state.pointDirty = true;
+    clampPanelToViewport();
+    scheduleRefresh();
+  }
+
+  function scheduleRefresh() {
+    if (!state.running || state.busy || state.frame !== null) return;
+    state.frame = requestAnimationFrame(() => {
+      state.frame = null;
+      refreshInspector();
+    });
+  }
+
+  function placeBox(box, rect) {
+    box.style.display = rect ? "block" : "none";
+    if (!rect) return;
+    box.style.left = `${rect.left}px`;
+    box.style.top = `${rect.top}px`;
+    box.style.width = `${rect.width}px`;
+    box.style.height = `${rect.height}px`;
+  }
+
+  function paintTarget(target) {
+    const valid = isValidTarget(target);
+    placeBox(state.highlight, valid ? rectFor(target) : null);
+    if (!valid) {
+      clearBoxLayers();
+      return;
+    }
+    const rect = rectFor(target);
+    state.label.textContent = `${state.locked ? "已鎖定 · " : ""}${describeElement(target)}`;
+    state.label.dataset.below = rect.top < 36 ? "true" : "false";
+    if (state.multiSelection.length) clearBoxLayers();
+    else paintBoxModel(target, rect);
+  }
+
+  function refreshInspector() {
+    if (!state.running || !state.highlight) return;
+    state.rectCache = new WeakMap();
+    if (state.pointDirty && !state.locked && state.point) {
+      updateFromPoint(state.point.x, state.point.y);
+      state.pointDirty = false;
+    }
+    if (state.locked && isValidTarget(state.current)) {
+      const leaf = state.branch[0];
+      state.branch = ancestorChain(leaf && (leaf === state.current || isAncestorOf(state.current, leaf)) ? leaf : state.current);
+      state.candidates = [...new Set([...state.branch, ...state.candidates])];
+    }
+    paintTarget(state.current);
+    const valid = state.multiSelection.filter(isValidTarget);
+    for (const [element, box] of state.selectionBoxes) {
+      if (!valid.includes(element)) {
+        box.remove();
+        state.selectionBoxes.delete(element);
+      }
+    }
+    for (const element of valid) {
+      if (!state.selectionBoxes.has(element)) {
+        const box = document.createElement("div");
+        box.className = "divsnap-selected";
+        state.shadow.querySelector(".divsnap-root").append(box);
+        state.selectionBoxes.set(element, box);
+      }
+      placeBox(state.selectionBoxes.get(element), rectFor(element));
+    }
+    const invalid = valid.length !== state.multiSelection.length;
+    placeBox(state.unionBox, !invalid && valid.length ? unionRects(valid.map(rectFor)) : null);
+    observeTargets();
+    state.candidates = state.candidates.filter(isValidTarget);
+    if (isValidTarget(state.current) && !state.candidates.includes(state.current)) state.candidates.push(state.current);
+    const message = invalid || (state.locked && !isValidTarget(state.current))
+      ? "目標已失效：請移除或重新選取後截圖。"
+      : `已選 ${state.multiSelection.length} 項 · ${state.locked ? "預覽已鎖定" : "滑過僅預覽"} · 外接矩形包含框內所有內容`;
+    sendInspectorState(message);
   }
 
   function paintBoxModel(target, rect) {
@@ -363,55 +908,77 @@
     state.boxLayers = [];
   }
 
-  async function finishSelection(elements, multi) {
-    const settings = await chrome.storage.sync.get({
-      copyToClipboard: true,
-      downloadPng: true,
-      captureMode: "visible"
-    });
-    if (!settings.copyToClipboard && !settings.downloadPng) {
-      removeInspector(true);
-      showHud("No output selected / 尚未選擇輸出方式", "warning");
-      return;
-    }
-
+  async function finishSelection(elements, multi, settings) {
     const dpr = window.devicePixelRatio || 1;
+    const ancestors = [...new Set(elements.flatMap((element) => scrollableAncestors(element)))];
+    state.captureSnapshot = saveScrollPositionsForAncestors(ancestors);
     let result;
-    removeInspector(false);
-    await waitForPaint();
-    if (multi) {
-      result = settings.captureMode === "full"
-        ? await captureFullMulti(elements, dpr)
-        : await captureVisibleMulti(elements, dpr);
-    } else {
-      result = settings.captureMode === "full"
-        ? await captureFull(elements[0], dpr)
-        : await captureVisible(elements[0], dpr);
+    try {
+      hideDivsnapUi();
+      await waitForPaint();
+      assertNotCancelled();
+      state.rectCache = new WeakMap();
+      if (elements.some((element) => !isValidTarget(element))) throw new Error("Selected elements changed. Please select again.");
+      if (multi) {
+        result = settings.captureMode === "full"
+          ? await captureFullMulti(elements, dpr)
+          : await captureVisibleMulti(elements, dpr);
+      } else {
+        result = settings.captureMode === "full"
+          ? await captureFull(elements[0], dpr)
+          : await captureVisible(elements[0], dpr);
+      }
+      assertNotCancelled();
+      const blob = await canvasToBlob(result.canvas);
+      const bufferBase64 = await blobToBase64(blob);
+      assertNotCancelled();
+      state.paused = true;
+      sendCaptureResult(true, "", {
+        bufferBase64,
+        mimeType: "image/png",
+        filenameBase: multi ? buildMultiFilename() : buildFilename(elements[0]),
+        notices: [result.notice, result.clipped ? "Visible crop / 已裁切至可見範圍" : ""].filter(Boolean)
+      });
+    } finally {
+      if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
+      state.captureSnapshot = null;
+      state.busy = false;
+      if (state.running && !state.cancelled) {
+        state.paused = true;
+        showDivsnapUi();
+        refreshInspector();
+      }
+      state.captureId = null;
     }
-    const blob = await canvasToBlob(result.canvas);
-    const messages = [];
-    if (result.notice) messages.push(result.notice);
-    if (result.clipped) messages.push("Visible crop / 已裁切至可見範圍");
+  }
 
-    const tasks = [];
-    if (settings.copyToClipboard) {
-      tasks.push(copyToClipboard(blob).then(() => messages.push("Copied / 已複製")).catch((error) => {
-        messages.push(`Clipboard failed / 複製失敗：${error.message || String(error)}`);
-      }));
+  function hideDivsnapUi() {
+    if (state.host) state.host.style.visibility = "hidden";
+    if (state.panelHost) {
+      state.panelHost.style.visibility = "hidden";
+      state.panelHost.style.pointerEvents = "none";
     }
-    if (settings.downloadPng) {
-      const filename = multi ? buildMultiFilename() : buildFilename(elements[0]);
-      tasks.push(downloadPng(blob, filename).then(() => messages.push("PNG downloaded / 已下載 PNG")).catch((error) => {
-        messages.push(`Download failed / 下載失敗：${error.message || String(error)}`);
-      }));
+  }
+
+  function showDivsnapUi() {
+    if (state.host) state.host.style.visibility = "visible";
+    if (state.panelHost) {
+      state.panelHost.style.visibility = "visible";
+      state.panelHost.style.pointerEvents = "auto";
     }
-    await Promise.all(tasks);
-    const kind = messages.some((message) => /failed|失敗/.test(message))
-      ? "error"
-      : result.notice
-        ? "warning"
-        : "info";
-    showHud(messages.join(" · "), kind);
+    updatePanelOpacity();
+  }
+
+  function sendCaptureResult(ok, error = "", payload = {}) {
+    chrome.runtime.sendMessage({
+      type: "CAPTURE_RESULT",
+      sessionId: state.sessionId,
+      documentToken: state.documentToken,
+      captureId: state.captureId,
+      ok,
+      error,
+      ...payload
+    }).catch?.(() => {});
   }
 
   async function captureVisible(target, dpr) {
@@ -422,7 +989,7 @@
 
   async function captureVisibleMulti(elements, dpr) {
     const region = unionViewportRegion(elements);
-    if (!region) throw new Error("Selected divs are no longer available.");
+    if (!region) throw new Error("Selected elements are no longer available.");
     return captureVisibleRegion(region, dpr);
   }
 
@@ -456,7 +1023,7 @@
     }
     const region = unionLayoutRegion(elements, ancestors);
     if (!region || region.width <= 0 || region.height <= 0) {
-      throw new Error("Selected divs have no capture area.");
+      throw new Error("Selected elements have no capture area.");
     }
     if (region.width * dpr > 8192 || region.height * dpr > 8192) {
       const fallback = await captureVisibleMulti(elements, dpr);
@@ -511,6 +1078,7 @@
   }
 
   async function captureFull(target, dpr) {
+    if (target instanceof SVGElement) return captureFullMulti([target], dpr);
     const width = Math.max(1, target.offsetWidth);
     const height = Math.max(1, target.offsetHeight);
     const snapshot = saveScrollPositions(target);
@@ -732,76 +1300,235 @@
   }
 
   function parentElementAcrossShadow(element) {
+    if (element.assignedSlot) return element.assignedSlot;
     if (element.parentElement) return element.parentElement;
     const root = element.getRootNode();
     return root instanceof ShadowRoot ? root.host : null;
   }
 
   function isSelectable(element) {
-    return element instanceof Element && element !== state.host && !state.host?.contains(element);
+    return element instanceof Element && !isOverlayNode(element);
   }
 
   function describeElement(element) {
+    if (!(element instanceof Element)) return "element";
     const tag = element.tagName.toLowerCase();
     const id = element.id ? `#${element.id}` : "";
     const classes = [...element.classList].slice(0, 4).map((name) => `.${name}`).join("");
-    const rect = element.getBoundingClientRect();
+    const rect = element.isConnected ? rectFor(element) : {width: 0, height: 0};
     return `${tag}${id}${classes} [${Math.round(rect.width)}×${Math.round(rect.height)}]`;
   }
 
-  function removeInspector(keepHud) {
+  function getElementDescriptor(element) {
+    if (!(element instanceof Element)) return {kind: "path", path: [], label: "element", needsConfirmation: true};
+    if (state.elementDescriptors.has(element)) return state.elementDescriptors.get(element);
+    const panel = element.closest("[data-test-embeddable-id]");
+    let descriptor;
+    if (panel && isUniqueEmbeddable(panel.dataset.testEmbeddableId)) {
+      const panelId = panel.dataset.testEmbeddableId;
+      const path = elementPath(panel, element);
+      descriptor = path?.length ? {kind: "relative", panelId, path, label: describeElement(element)} : {kind: "embeddable", panelId, label: describeElement(panel)};
+    } else {
+      const selector = stableSelector(element);
+      descriptor = selector
+        ? {kind: "selector", selector, label: describeElement(element)}
+        : {kind: "path", path: elementPath(document.body, element) || [], label: describeElement(element), needsConfirmation: true};
+    }
+    state.elementDescriptors.set(element, descriptor);
+    return descriptor;
+  }
+
+  function stableSelector(element) {
+    if (element.id && document.querySelectorAll(`#${escapeCss(element.id)}`).length === 1) return `#${escapeCss(element.id)}`;
+    for (const attribute of ["data-testid", "data-test", "name", "aria-label"]) {
+      const value = element.getAttribute(attribute);
+      if (!value) continue;
+      const selector = `[${attribute}="${escapeAttribute(value)}"]`;
+      if (document.querySelectorAll(selector).length === 1) return selector;
+    }
+    return "";
+  }
+
+  function isUniqueEmbeddable(panelId) {
+    return Boolean(panelId) && document.querySelectorAll(`[data-test-embeddable-id="${escapeAttribute(panelId)}"]`).length === 1;
+  }
+
+  function elementPath(root, element) {
+    const path = [];
+    let node = element;
+    while (node && node !== root) {
+      const parent = node.parentElement;
+      if (!parent) return null;
+      path.unshift([...parent.children].indexOf(node));
+      node = parent;
+    }
+    return node === root ? path : null;
+  }
+
+  function resolveElementPath(root, path) {
+    let node = root;
+    for (const index of path || []) {
+      node = node?.children?.[index] || null;
+      if (!node) return null;
+    }
+    return node;
+  }
+
+  function resolveProfileTarget(target) {
+    let matches = [];
+    if (target?.kind === "embeddable") {
+      matches = [...document.querySelectorAll(`[data-test-embeddable-id="${escapeAttribute(target.panelId)}"]`)]
+        .filter((element) => isValidTarget(element));
+    } else if (target?.kind === "relative") {
+      const panels = [...document.querySelectorAll(`[data-test-embeddable-id="${escapeAttribute(target.panelId)}"]`)];
+      matches = panels.map((panel) => resolveElementPath(panel, target.path)).filter((element) => isValidTarget(element));
+    } else if (target?.kind === "selector") {
+      try {
+        matches = [...document.querySelectorAll(target.selector)].filter((element) => isValidTarget(element));
+      } catch {
+        matches = [];
+      }
+    } else if (target?.kind === "path") {
+      const element = resolveElementPath(document.body, target.path);
+      if (isValidTarget(element)) matches = [element];
+    }
+    const status = matches.length === 0 ? "missing" : matches.length > 1 ? "ambiguous" : target?.needsConfirmation ? "needs_confirmation" : "resolved";
+    return {status, matches, element: matches[0] || null, label: target?.label || "Profile target"};
+  }
+
+  function loadProfile(targets) {
+    state.paused = true;
+    state.history = [];
+    state.locked = false;
+    state.profileResolution = targets.map((target, index) => ({index, target, ...resolveProfileTarget(target)}));
+    state.multiSelection = state.profileResolution.filter((item) => item.status === "resolved" && item.element).map((item) => item.element);
+    for (const element of state.multiSelection) getElementDescriptor(element);
+    state.current = state.multiSelection[0] || null;
+    state.candidates = state.current ? ancestorChain(state.current) : [];
+    state.pointDirty = false;
+    if (state.host) state.host.style.display = "block";
+    refreshInspector();
+  }
+
+  function dismissProfileTarget(index) {
+    state.profileResolution = state.profileResolution.filter((item) => item.index !== index);
+    sendInspectorState();
+  }
+
+  function sendInspectorState(statusOverride = "") {
+    if (!state.sessionId) return;
+    const candidates = state.candidates.filter(isValidTarget);
+    const validSelection = state.multiSelection.filter(isValidTarget);
+    const invalid = validSelection.length !== state.multiSelection.length;
+    const hasTarget = Boolean(validSelection.length || (state.locked && isValidTarget(state.current)));
+    const unresolvedProfile = state.profileResolution.some((item) => item.status !== "resolved");
+    chrome.runtime.sendMessage({
+      type: "INSPECT_STATE",
+      sessionId: state.sessionId,
+      documentToken: state.documentToken,
+      frameId: 0,
+      running: state.running,
+      paused: state.paused,
+      busy: state.busy,
+      locked: state.locked,
+      currentIndex: candidates.indexOf(state.current),
+      current: isValidTarget(state.current) ? {label: describeElement(state.current), descriptor: getElementDescriptor(state.current)} : null,
+      candidates: candidates.map((element) => ({label: describeElement(element), descriptor: getElementDescriptor(element)})),
+      selection: state.multiSelection.map((element) => ({valid: isValidTarget(element), label: describeElement(element), descriptor: getElementDescriptor(element)})),
+      historyLength: state.history.length,
+      canCapture: !state.busy && hasTarget && !invalid && !unresolvedProfile,
+      status: statusOverride || (unresolvedProfile ? "Profile 尚有缺失、重複或待確認項目。" : invalid ? "目標已失效：請移除或重新選取後截圖。" : `已選 ${state.multiSelection.length} 項 · ${state.locked ? "預覽已鎖定" : "滑過僅預覽"}`),
+      profileResolution: state.profileResolution.map(({index, target, status, label, matches}) => ({index, target, status, label, matchCount: matches.length})),
+      page: pageContext()
+    });
+  }
+
+  function pageContext() {
+    const url = new URL(location.href);
+    let identity = url.href;
+    let label = `${url.host}${url.pathname}`;
+    let kind = "page";
+    if (/\/app\/dashboards?(?:\/|$)/.test(url.pathname) || /\/app\/dashboard(?:\/|$)/.test(url.pathname)) {
+      const space = url.pathname.match(/\/s\/([^/]+)/)?.[1] || "default";
+      const dashboardId = url.hash.match(/(?:view|dashboard)\/([^/?]+)/)?.[1] || url.searchParams.get("dashboard") || url.searchParams.get("view") || "unknown";
+      identity = `kibana|${url.host}|${space}|${dashboardId}`;
+      label = `${url.host} · Kibana ${dashboardId}`;
+      kind = "dashboard";
+    } else {
+      const grafana = url.pathname.match(/\/d(?:-solo)?\/([^/]+)/);
+      if (grafana) {
+        const org = url.searchParams.get("orgId") || "default";
+        identity = `grafana|${url.host}|${org}|${grafana[1]}`;
+        label = `${url.host} · Grafana ${grafana[1]}`;
+        kind = "dashboard";
+      }
+    }
+    return {kind, label, pageKey: `page-${stableHash(identity)}`};
+  }
+
+  function stableHash(value) {
+    let hash = 2166136261;
+    for (const character of value) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+    return (hash >>> 0).toString(16);
+  }
+
+  function escapeCss(value) {
+    return globalThis.CSS?.escape ? CSS.escape(value) : String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => `\\${character}`);
+  }
+
+  function escapeAttribute(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function assertNotCancelled() {
+    if (state.cancelled) throw new Error("Capture cancelled.");
+  }
+
+  function removeInspector() {
+    state.cancelled = true;
+    state.mutationObserver?.disconnect();
+    state.resizeObserver?.disconnect();
+    state.mutationObserver = null;
+    state.resizeObserver = null;
+    state.observedRoots.clear();
+    state.observedElements.clear();
+    if (state.frame !== null) cancelAnimationFrame(state.frame);
+    state.frame = null;
     for (const remove of state.listeners.splice(0)) remove();
     clearBoxLayers();
     state.multiSelection = [];
-    state.shiftSelecting = false;
-    state.lastShiftPoint = null;
-    state.shiftHoverTarget = null;
+    state.profileResolution = [];
+    state.locked = false;
+    state.point = null;
+    state.pointDirty = false;
+    state.candidates = [];
+    state.branch = [];
+    state.history = [];
+    state.rectCache = new WeakMap();
+    for (const box of state.selectionBoxes.values()) box.remove();
+    state.selectionBoxes.clear();
+    state.unionBox?.remove();
+    state.unionBox = null;
     state.highlight?.remove();
     state.highlight = null;
     state.label = null;
     state.current = null;
     state.running = false;
-    if (!keepHud) {
-      clearTimeout(state.hudTimer);
-      state.host?.remove();
-      state.host = null;
-      state.shadow = null;
-    }
-  }
-
-  function showHud(message, kind = "info") {
-    if (!state.host) {
-      state.host = document.createElement("div");
-      state.host.setAttribute("data-divsnap-overlay", "true");
-      state.host.style.position = "fixed";
-      state.host.style.inset = "0";
-      state.host.style.zIndex = "2147483647";
-      state.host.style.display = "block";
-      state.host.style.pointerEvents = "none";
-      state.shadow = state.host.attachShadow({mode: "open"});
-      const style = document.createElement("style");
-      fetch(chrome.runtime.getURL("overlay.css")).then((response) => response.text()).then((css) => style.textContent = css).catch(() => {});
-      const root = document.createElement("div");
-      root.className = "divsnap-root";
-      state.shadow.append(style, root);
-      (document.documentElement || document.body).append(state.host);
-    }
-    const hud = document.createElement("div");
-    hud.className = "divsnap-hud";
-    hud.dataset.kind = kind;
-    hud.textContent = message;
-    state.shadow.querySelector(".divsnap-root").append(hud);
-    clearTimeout(state.hudTimer);
-    state.hudTimer = setTimeout(() => {
-      state.host?.remove();
-      state.host = null;
-      state.shadow = null;
-    }, 2500);
+    state.paused = false;
+    state.busy = false;
+    state.captureSnapshot = null;
+    state.captureId = null;
+    state.captureRequested = false;
+    showDivsnapUi();
+    sendInspectorState("Inspector 已停止。 ");
+    state.host?.remove();
+    state.host = null;
+    state.shadow = null;
   }
 
   function requestCapture() {
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({type: "CAPTURE_VISIBLE"}, (response) => {
+      chrome.runtime.sendMessage({type: "CAPTURE_VISIBLE", sessionId: state.sessionId, documentToken: state.documentToken, captureId: state.captureId}, (response) => {
         const error = chrome.runtime.lastError;
         if (error) return reject(new Error(error.message));
         if (!response?.ok) return reject(new Error(response?.error || "Capture unavailable."));
@@ -810,30 +1537,8 @@
     });
   }
 
-  async function copyToClipboard(blob) {
-    if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error("Clipboard API unavailable.");
-    await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]);
-  }
-
-  function downloadPng(blob, filename) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const buffer = await blob.arrayBuffer();
-        const bufferBase64 = arrayBufferToBase64(buffer);
-        chrome.runtime.sendMessage({type: "DOWNLOAD_PNG", filename, bufferBase64}, (response) => {
-          const error = chrome.runtime.lastError;
-          if (error) reject(new Error(error.message));
-          else if (!response?.ok) reject(new Error(response?.error || "Download unavailable."));
-          else resolve(response.downloadId);
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  function arrayBufferToBase64(buffer) {
-    const bytes = new Uint8Array(buffer);
+  async function blobToBase64(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = "";
     const chunkSize = 0x8000;
     for (let index = 0; index < bytes.length; index += chunkSize) {
@@ -875,11 +1580,11 @@
   function buildFilename(element) {
     const tag = element.tagName.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
     const id = element.id ? `-${element.id.replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-")}` : "";
-    return `divsnap-${tag}${id}-${buildTimestamp()}.png`;
+    return `divsnap-${tag}${id}-${buildTimestamp()}`;
   }
 
   function buildMultiFilename() {
-    return `divsnap-multi-${buildTimestamp()}.png`;
+    return `divsnap-multi-${buildTimestamp()}`;
   }
 
   function buildTimestamp() {
@@ -895,5 +1600,9 @@
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  function createDocumentToken() {
+    return globalThis.crypto?.randomUUID?.() || `document-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 })();

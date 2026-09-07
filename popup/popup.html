@@ -7,69 +7,89 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <main class="popup-shell">
+  <main class="control-shell">
     <header class="topbar">
       <div class="brand-mark" aria-hidden="true"><img src="../icons/icon-32.png" alt=""></div>
-      <div>
-        <h1>DivSnap</h1>
-        <p>DOM element capture</p>
+      <div class="brand-copy">
+        <h1 id="panel-drag" title="按住拖曳以移動面板">DivSnap <span id="version">1.3.1</span></h1>
       </div>
-      <kbd id="shortcut-badge" aria-label="目前快捷鍵">…</kbd>
+      <div class="shortcut-actions">
+        <button id="shortcut-settings" class="shortcut-button" type="button" aria-label="開啟瀏覽器快捷鍵設定" title="開啟瀏覽器快捷鍵設定">快捷鍵設定</button>
+        <span id="shortcut-label" class="shortcut-status" aria-live="polite">啟動選取：未設定</span>
+      </div>
+      <button id="panel-close" type="button" aria-label="關閉 DivSnap 面板" title="關閉（連按兩下 Esc）">×</button>
     </header>
 
-    <section class="start-panel">
-      <div>
-        <span class="eyebrow">INSPECTOR</span>
-        <strong>選取頁面元素</strong>
-        <small>Hover to preview · click to capture</small>
-      </div>
-      <button id="start" class="primary-button" type="button">
-        <span aria-hidden="true">＋</span> Start Inspect
-      </button>
+    <section class="binding-card" aria-labelledby="binding-title">
+      <div class="section-heading"><span id="binding-title">綁定頁面</span><span id="connection-dot" class="status-dot" aria-hidden="true"></span></div>
+      <strong id="bound-page">尚未綁定網頁分頁</strong>
+      <p id="connection-status" class="subtle">請從網頁分頁點擊 DivSnap 圖示。</p>
     </section>
 
-    <section class="shortcut-section" aria-labelledby="shortcut-title">
-      <div class="section-heading">
-        <span id="shortcut-title">Keyboard shortcut</span>
-        <span class="unit">Chrome managed</span>
+    <details id="profile-section" class="section-card" aria-labelledby="profile-title">
+      <summary class="section-heading"><span id="profile-title">Profile</span><span class="unit">只保存選取範圍</span></summary>
+      <div class="profile-row">
+        <select id="profile-select" aria-label="選取 Profile"><option value="">目前頁面沒有 Profile</option></select>
+        <button id="load-profile" class="secondary-button" type="button">載入</button>
       </div>
-      <div class="shortcut-row">
-        <div class="shortcut-copy">
-          <strong>Start Inspect</strong>
-          <small>由 Chrome 管理，可自訂組合鍵</small>
-        </div>
-        <kbd id="shortcut-value" class="shortcut-key" aria-label="目前快捷鍵">…</kbd>
-        <button id="shortcut-settings" class="secondary-button" type="button">設定快捷鍵</button>
+      <div class="profile-edit-row">
+        <input id="profile-name" type="text" maxlength="80" placeholder="手動輸入名稱" aria-label="Profile 名稱">
+        <button id="new-profile" class="secondary-button" type="button">新增</button>
+        <button id="update-profile" class="secondary-button" type="button">更新</button>
+        <button id="rename-profile" class="secondary-button" type="button">重新命名</button>
+        <button id="delete-profile" class="danger-button" type="button">刪除</button>
       </div>
+      <p id="profile-hint" class="subtle">載入後會先解析並預覽，不會自動截圖。</p>
+      <div id="profile-issues" class="issue-list" aria-live="polite"></div>
+    </details>
+
+    <section class="section-card" aria-labelledby="selection-title">
+      <div class="section-heading"><span id="selection-title">選取工作區</span><span class="unit">DOM 參照留在頁面</span></div>
+      <div class="workspace-actions">
+        <button id="toggle-inspect" class="primary-button" type="button">開始選取</button>
+        <button id="unlock" class="secondary-button" type="button">解鎖預覽</button>
+        <button id="undo" class="secondary-button" type="button">撤銷</button>
+        <button id="clear" class="secondary-button" type="button">清除</button>
+      </div>
+      <label class="field-label" for="candidates">候選層級與重疊元素</label>
+      <select id="candidates" class="wide-select" aria-label="候選層級與重疊元素"><option>尚未開始選取</option></select>
+      <div class="navigation-actions">
+        <button id="parent" class="secondary-button" type="button">↑ 父層</button>
+        <button id="child" class="secondary-button" type="button">↓ 子層</button>
+        <button id="toggle-current" class="secondary-button" type="button">加入／移除目前項目</button>
+      </div>
+      <p id="selection-status" class="status-text" role="status" aria-live="polite">尚未開始。</p>
+      <div class="selection-heading"><strong>已選清單</strong><span id="selection-count">0 項</span></div>
+      <div id="selection-list" class="selection-list"><p class="empty-state">鎖定預覽或用 Shift＋點擊加入元素。</p></div>
     </section>
 
-    <section class="settings" aria-labelledby="settings-title">
-      <div class="section-heading">
-        <span id="settings-title">Capture settings</span>
-        <span class="status-dot" aria-hidden="true"></span>
-      </div>
-      <label class="setting-row">
-        <span class="setting-copy"><strong>Copy to Clipboard</strong><small>PNG · Figma / Slack ready</small></span>
-        <input id="copyToClipboard" type="checkbox">
-        <span class="switch" aria-hidden="true"></span>
-      </label>
-      <label class="setting-row">
-        <span class="setting-copy"><strong>Download PNG</strong><small>Save to Downloads</small></span>
-        <input id="downloadPng" type="checkbox">
-        <span class="switch" aria-hidden="true"></span>
-      </label>
-    </section>
-
-    <section class="mode-section" aria-labelledby="mode-title">
-      <div class="section-heading"><span id="mode-title">Capture range</span><span class="unit">CSS px × DPR</span></div>
+    <details id="output-section" class="section-card" aria-labelledby="output-title">
+      <summary class="section-heading"><span id="output-title">輸出設定</span><span class="unit">本次擷取固定設定</span></summary>
       <div class="mode-options">
-        <label class="mode-option"><input type="radio" name="captureMode" value="visible"><span><strong>Visible</strong><small>Viewport crop</small></span></label>
+        <label class="mode-option"><input type="radio" name="captureMode" value="visible"><span><strong>Visible</strong><small>目前可見範圍</small></span></label>
         <label class="mode-option"><input type="radio" name="captureMode" value="full"><span><strong>Full</strong><small>拼接完整 layout box</small></span></label>
       </div>
-    </section>
+      <div class="format-options">
+        <label class="format-option"><input type="radio" name="imageFormat" value="png"><span><strong>PNG</strong><small>無損，預設格式</small></span></label>
+        <label class="format-option"><input type="radio" name="imageFormat" value="webp"><span><strong>WebP</strong><small>高品質有損，品質 0.95</small></span></label>
+      </div>
+      <label class="setting-row"><span><strong>複製到剪貼簿</strong><small>固定使用 PNG</small></span><input id="copyToClipboard" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
+      <label class="setting-row"><span><strong>儲存圖片</strong><small>未選資料夾時使用瀏覽器 Downloads</small></span><input id="downloadEnabled" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
+      <div class="directory-row">
+        <div class="directory-copy"><strong id="directory-name">瀏覽器 Downloads</strong><small id="directory-status">尚未選擇本機資料夾</small></div>
+        <button id="choose-directory" class="secondary-button" type="button">選擇資料夾</button>
+        <button id="reauthorize-directory" class="secondary-button" type="button" hidden>重新授權</button>
+      </div>
+    </details>
 
-    <p id="message" class="message" role="status" aria-live="polite"></p>
-    <footer>DivSnap · MV3 · no page access until you start</footer>
+    <section class="action-bar" aria-labelledby="action-title">
+      <div class="progress-copy"><span id="action-title" class="eyebrow">CAPTURE</span><strong id="progress">準備就緒</strong></div>
+      <button id="capture" class="capture-button" type="button" disabled>儲存圖片</button>
+    </section>
+    <div id="result" class="result" role="status" aria-live="polite"></div>
+    <div class="retry-row"><button id="retry-copy" class="secondary-button" type="button" hidden>點擊複製 PNG</button><button id="retry-output" class="secondary-button" type="button" hidden>重試儲存</button></div>
+    <p id="message" class="message" role="alert" aria-live="assertive"></p>
+    <footer>拖曳 DivSnap 標題移動 · 連按兩下 Esc 關閉</footer>
   </main>
   <script src="popup.js"></script>
 </body>

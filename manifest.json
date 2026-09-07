@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DivSnap",
-  "version": "1.2.1",
+  "version": "1.3.1",
   "description": "Inspect a DOM element and capture its visible or full layout box.",
   "permissions": [
     "activeTab",
@@ -12,7 +12,6 @@
   ],
   "action": {
     "default_title": "DivSnap",
-    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -36,7 +35,16 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["overlay.css"],
+      "resources": [
+        "overlay.css",
+        "popup/popup.html",
+        "popup/popup.css",
+        "popup/popup.js",
+        "icons/icon-16.png",
+        "icons/icon-32.png",
+        "icons/icon-48.png",
+        "icons/icon-128.png"
+      ],
       "matches": ["http://*/*", "https://*/*", "file:///*"]
     }
   ]

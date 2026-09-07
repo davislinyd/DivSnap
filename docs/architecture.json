@@ -8,155 +8,63 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/davislinyd/DivSnap",
-      "revision": "8805febe6e1cbdb448030a63e091abdadba25b4e"
+      "revision": "3377206966171e179c859e255530cbd1c6dd2e9a"
     },
-    "viewBox": [1200, 700],
+    "viewBox": [1300, 700],
     "views": [
       {
         "id": "inspect-flow",
         "label": "Inspect flow",
         "focus": ["popup", "shortcut", "worker", "inspector", "page"],
-        "note": "Start an inspector session from the popup or the Chrome-managed configurable keyboard command, then inspect the active page."
+        "note": "Action toggles one panel; drag its compact bar and use Expand to restore. Click/Enter locks; Escape unlocks; Enter captures."
       },
       {
         "id": "capture-flow",
         "label": "Capture and compose",
         "focus": ["page", "capture", "composer", "inspector"],
-        "note": "The content script requests viewport captures and composes a DPR-aware crop or stitched layout box."
+        "note": "The content script requests viewport captures and composes a DPR-aware crop or stitched layout box, then returns CAPTURE_RESULT data."
       },
       {
         "id": "outputs",
         "label": "Output boundary",
-        "focus": ["composer", "clipboard", "downloads", "settings"],
-        "note": "Only the configured Clipboard and PNG download outputs receive the composed image."
+        "focus": ["popup", "composer", "clipboard", "downloads", "folder", "settings"],
+        "note": "The panel fixes output settings per capture, always copies PNG, and saves PNG or WebP without overwriting files."
       }
     ]
   },
   "components": [
-    {
-      "id": "popup",
-      "type": "frontend",
-      "label": "Popup UI",
-      "sublabel": "settings + start",
-      "tag": "popup/",
-      "sources": [{"path": "popup/popup.html", "line": 1}],
-      "pos": [55, 250],
-      "size": [170, 74]
-    },
-    {
-      "id": "shortcut",
-      "type": "external",
-      "label": "Chrome Command",
-      "sublabel": "customizable command",
-      "tag": "commands",
-      "sources": [{"path": "manifest.json", "line": 32}],
-      "pos": [55, 105],
-      "size": [170, 74]
-    },
-    {
-      "id": "worker",
-      "type": "backend",
-      "label": "Service Worker",
-      "sublabel": "capture + downloads",
-      "tag": "background.js",
-      "sources": [{"path": "background.js", "line": 26}],
-      "pos": [300, 180],
-      "size": [190, 82]
-    },
-    {
-      "id": "settings",
-      "type": "database",
-      "label": "Sync Storage",
-      "sublabel": "three user settings",
-      "tag": "chrome.storage.sync",
-      "sources": [{"path": "background.js", "line": 1}],
-      "pos": [300, 395],
-      "size": [190, 74]
-    },
-    {
-      "id": "inspector",
-      "type": "frontend",
-      "label": "DOM Inspector",
-      "sublabel": "hover + keyboard + click",
-      "tag": "content.js",
-      "sources": [{"path": "content.js", "line": 27}],
-      "pos": [560, 180],
-      "size": [205, 82]
-    },
-    {
-      "id": "page",
-      "type": "external",
-      "label": "Active Web Page",
-      "sublabel": "DOM + viewport",
-      "tag": "activeTab",
-      "sources": [{"path": "manifest.json", "line": 6}],
-      "pos": [560, 395],
-      "size": [205, 74]
-    },
-    {
-      "id": "capture",
-      "type": "cloud",
-      "label": "CaptureVisibleTab",
-      "sublabel": "PNG data URL",
-      "tag": "chrome.tabs",
-      "sources": [{"path": "background.js", "line": 42}],
-      "pos": [850, 105],
-      "size": [205, 74]
-    },
-    {
-      "id": "composer",
-      "type": "backend",
-      "label": "Canvas Composer",
-      "sublabel": "DPR crop / full stitch",
-      "tag": "Canvas 2D",
-      "sources": [{"path": "content.js", "line": 235}],
-      "pos": [850, 270],
-      "size": [205, 82]
-    },
-    {
-      "id": "clipboard",
-      "type": "external",
-      "label": "Clipboard",
-      "sublabel": "ClipboardItem PNG",
-      "tag": "optional output",
-      "sources": [{"path": "content.js", "line": 469}],
-      "pos": [850, 445],
-      "size": [205, 74]
-    },
-    {
-      "id": "downloads",
-      "type": "external",
-      "label": "Downloads",
-      "sublabel": "timestamped PNG",
-      "tag": "optional output",
-      "sources": [{"path": "background.js", "line": 73}],
-      "pos": [1050, 570],
-      "size": [125, 74]
-    }
+    {"id": "popup", "type": "frontend", "label": "In-page Panel", "sublabel": "iframe profiles + outputs", "tag": "popup/", "sources": [{"path": "popup/popup.html", "line": 1}], "pos": [55, 250], "size": [170, 74]},
+    {"id": "shortcut", "type": "external", "label": "Chrome Command", "sublabel": "customizable command", "tag": "commands", "sources": [{"path": "manifest.json", "line": 1}], "pos": [55, 105], "size": [170, 74]},
+    {"id": "worker", "type": "backend", "label": "Service Worker", "sublabel": "tab/session + folder writes", "tag": "background.js", "sources": [{"path": "background.js", "line": 1}], "pos": [300, 180], "size": [190, 82]},
+    {"id": "settings", "type": "database", "label": "Sync Storage", "sublabel": "output settings + migration", "tag": "chrome.storage.sync", "sources": [{"path": "background.js", "line": 1}], "pos": [300, 395], "size": [190, 74]},
+    {"id": "inspector", "type": "frontend", "label": "DOM Inspector", "sublabel": "panel + box overlay + DOM refs", "tag": "content.js", "sources": [{"path": "content.js", "line": 1}], "pos": [560, 180], "size": [205, 82]},
+    {"id": "page", "type": "external", "label": "Active Web Page", "sublabel": "DOM + viewport", "tag": "activeTab", "sources": [{"path": "manifest.json", "line": 1}], "pos": [560, 395], "size": [205, 74]},
+    {"id": "capture", "type": "cloud", "label": "CaptureVisibleTab", "sublabel": "PNG data URL", "tag": "chrome.tabs", "sources": [{"path": "background.js", "line": 1}], "pos": [850, 105], "size": [205, 74]},
+    {"id": "composer", "type": "backend", "label": "Canvas Composer", "sublabel": "DPR crop / full stitch", "tag": "Canvas 2D", "sources": [{"path": "content.js", "line": 1}], "pos": [850, 270], "size": [205, 82]},
+    {"id": "clipboard", "type": "external", "label": "Clipboard", "sublabel": "ClipboardItem PNG only", "tag": "optional output", "sources": [{"path": "popup/popup.js", "line": 1}], "pos": [850, 445], "size": [205, 74]},
+    {"id": "folder", "type": "database", "label": "Local Folder", "sublabel": "worker-owned IndexedDB handle", "tag": "File System Access", "sources": [{"path": "background.js", "line": 1}], "pos": [1075, 395], "size": [160, 74]},
+    {"id": "downloads", "type": "external", "label": "Downloads", "sublabel": "timestamped PNG / WebP", "tag": "optional output", "sources": [{"path": "background.js", "line": 1}], "pos": [1050, 540], "size": [175, 74]},
+    {"id": "profiles", "type": "database", "label": "Profiles", "sublabel": "page-scoped descriptors", "tag": "chrome.storage.local", "sources": [{"path": "popup/popup.js", "line": 1}], "pos": [55, 515], "size": [170, 74]}
   ],
   "boundaries": [
-    {
-      "kind": "security-group",
-      "label": "Extension boundary: activeTab only, no <all_urls>",
-      "wraps": ["popup", "shortcut", "worker", "settings", "inspector", "composer"]
-    }
+    {"kind": "security-group", "label": "Extension boundary: activeTab only, no <all_urls>", "wraps": ["popup", "shortcut", "worker", "settings", "inspector", "composer", "folder", "profiles"]}
   ],
   "connections": [
-    {"id": "popup-start", "from": "popup", "to": "worker", "label": "START_INSPECT", "variant": "emphasis"},
+    {"id": "popup-start", "from": "popup", "to": "worker", "label": "CONTROL Port + CAPTURE_REQUEST", "labelAt": [263, 338], "variant": "emphasis"},
     {"id": "shortcut-start", "from": "shortcut", "to": "worker", "label": "start-inspect", "variant": "emphasis"},
-    {"id": "worker-inject", "from": "worker", "to": "inspector", "label": "executeScript + START_INSPECT", "labelDy": 58},
+    {"id": "worker-inject", "from": "worker", "to": "inspector", "label": "executeScript + panel command", "labelDy": 58},
     {"id": "popup-settings", "from": "popup", "to": "settings", "label": "sync settings", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
-    {"id": "inspector-settings", "from": "inspector", "to": "settings", "label": "read settings", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
+    {"id": "popup-profiles", "from": "popup", "to": "profiles", "label": "profile descriptors", "labelAt": [245, 375], "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
     {"id": "inspector-page", "from": "inspector", "to": "page", "label": "DOM + scroll", "fromSide": "bottom", "toSide": "top", "labelDy": 24, "labelDx": 80},
     {"id": "inspector-capture", "from": "inspector", "to": "capture", "label": "CAPTURE_VISIBLE", "fromSide": "right", "toSide": "left", "variant": "emphasis"},
-    {"id": "capture-worker", "from": "capture", "to": "worker", "label": "PNG data URL", "fromSide": "top", "toSide": "right", "variant": "dashed"},
+    {"id": "capture-worker", "from": "capture", "to": "worker", "label": "PNG tiles", "fromSide": "top", "toSide": "right", "variant": "dashed"},
     {"id": "inspector-composer", "from": "inspector", "to": "composer", "label": "canvas drawImage", "fromSide": "right", "toSide": "left"},
-    {"id": "composer-clipboard", "from": "composer", "to": "clipboard", "label": "ClipboardItem", "fromSide": "bottom", "toSide": "top", "labelDy": 24},
-    {"id": "composer-downloads", "from": "composer", "to": "downloads", "label": "DOWNLOAD_PNG", "fromSide": "right", "toSide": "top", "via": [[1100, 311], [1160, 311], [1160, 545], [1112.5, 545]], "variant": "emphasis"}
+    {"id": "composer-clipboard", "from": "composer", "to": "clipboard", "label": "PNG ClipboardItem", "fromSide": "bottom", "toSide": "top", "labelDy": 24},
+    {"id": "composer-downloads", "from": "composer", "to": "downloads", "label": "DOWNLOAD_IMAGE", "labelAt": [1170, 500], "fromSide": "right", "toSide": "top", "via": [[1065, 311], [1065, 520], [1137.5, 520]], "variant": "emphasis"}
   ],
   "cards": [
     {"dot": "cyan", "title": "Capture", "items": ["Visible clamps the border box to the viewport", "Full stitches tiles without expanding overflow content", "Canvas dimensions include devicePixelRatio"]},
-    {"dot": "emerald", "title": "Outputs", "items": ["Clipboard uses a PNG Blob and ClipboardItem", "Downloads cross the MV3 boundary as base64", "At least one output must be enabled"]},
+    {"dot": "emerald", "title": "Outputs", "items": ["Clipboard always uses a PNG Blob and ClipboardItem", "Saved output supports PNG and WebP 0.95", "The worker owns the folder handle and avoids overwriting files"]},
     {"dot": "rose", "title": "Security", "items": ["No <all_urls> host permission", "Injection is on demand through activeTab", "Cross-origin iframe documents are not entered"]}
   ]
 }
