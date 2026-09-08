@@ -1,8 +1,13 @@
+importScripts("i18n.js");
+const t = (...args) => DivSnapI18n.t(...args);
+const languageReady = DivSnapI18n.load().catch(() => {});
+
 const DEFAULT_SETTINGS = {
   copyToClipboard: true,
   downloadEnabled: true,
   captureMode: "visible",
-  imageFormat: "png"
+  imageFormat: "png",
+  language: "zh-Hant"
 };
 
 const controller = {
@@ -20,14 +25,14 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  openControlPanel(tab?.id).catch((error) => console.error("DivSnap panel failed", error));
+  languageReady.then(() => openControlPanel(tab?.id)).catch((error) => console.error("DivSnap panel failed", error));
 });
 
 chrome.commands.onCommand.addListener((command) => {
   if (command !== "start-inspect") return;
-  chrome.tabs.query({active: true, lastFocusedWindow: true}).then(([tab]) => {
+  languageReady.then(() => chrome.tabs.query({active: true, lastFocusedWindow: true})).then(([tab]) => {
     if (tab?.id !== undefined) return openControlPanel(tab.id, true);
-    throw new Error("找不到目前分頁 / Active tab unavailable.");
+    throw new Error(t("activeTabMissing"));
   }).catch((error) => console.error("DivSnap start failed", error));
 });
 
@@ -94,10 +99,11 @@ async function migrateSettings() {
 }
 
 async function openControlPanel(targetTabId, autoStart = false) {
+  await languageReady;
   await restoreController();
-  if (!Number.isInteger(targetTabId)) throw new Error("找不到目前分頁 / Active tab unavailable.");
+  if (!Number.isInteger(targetTabId)) throw new Error(t("activeTabMissing"));
   const tab = await chrome.tabs.get(targetTabId);
-  if (tab.url && !isInspectableUrl(tab.url)) throw new Error("目前頁面無法啟動 DivSnap / This page cannot start DivSnap.");
+  if (tab.url && !isInspectableUrl(tab.url)) throw new Error(t("pageUnavailable"));
 
   if (!autoStart && controller.boundTabId === targetTabId && controller.sessionId && controller.documentToken) {
     await stopAndCloseBoundPanel();
@@ -119,14 +125,14 @@ async function openControlPanel(targetTabId, autoStart = false) {
 
   await ensureContentScript(targetTabId);
   let response = await sendPanelCommand(targetTabId, "OPEN_PANEL");
-  if (!response?.ok) throw new Error(response?.error || "無法開啟頁內面板。");
+  if (!response?.ok) throw new Error(response?.error || t("panelOpenFailed"));
   if (controller.documentToken && response.documentToken !== controller.documentToken) {
     controller.sessionId = createId("session");
     controller.documentToken = null;
     controller.captureId = null;
     await persistController();
     response = await sendPanelCommand(targetTabId, "OPEN_PANEL");
-    if (!response?.ok) throw new Error(response?.error || "無法重新建立頁內面板。");
+    if (!response?.ok) throw new Error(response?.error || t("panelRecreateFailed"));
   }
   controller.documentToken = response.documentToken;
   await persistController();
@@ -135,7 +141,7 @@ async function openControlPanel(targetTabId, autoStart = false) {
 }
 
 async function ensureContentScript(tabId) {
-  await chrome.scripting.executeScript({target: {tabId, frameIds: [0]}, files: ["content.js"]});
+  await chrome.scripting.executeScript({target: {tabId, frameIds: [0]}, files: ["i18n.js", "content.js"]});
 }
 
 async function stopAndCloseBoundPanel() {
@@ -174,6 +180,7 @@ async function sendPanelCommand(tabId, type) {
 }
 
 async function handleControlMessage(port, message) {
+  await languageReady;
   if (!message?.type) return;
   if (message.type === "CONTROL_READY") {
     const result = await handleControlReady(port, message);
@@ -203,7 +210,7 @@ async function handleControlMessage(port, message) {
 
 async function handleControlReady(port, message) {
   await restoreController();
-  if (!isControlIdentity(message)) throw new Error("頁面工作階段已更新，請重新開啟 DivSnap。");
+  if (!isControlIdentity(message)) throw new Error(t("sessionChanged"));
   controller.controlPort = port;
   port.__divsnapReady = true;
   port.__divsnapIdentity = {
@@ -224,8 +231,8 @@ async function handleControlReady(port, message) {
 
 async function handleInspectCommand(port, message) {
   assertControlPort(port);
-  if (message.sessionId !== controller.sessionId) throw new Error("工作階段已更新，請重新選取分頁 / Session changed.");
-  if (controller.boundTabId === null) throw new Error("尚未綁定網頁分頁 / No web tab is bound.");
+  if (message.sessionId !== controller.sessionId) throw new Error(t("sessionChanged"));
+  if (controller.boundTabId === null) throw new Error(t("noBoundTab"));
   if (message.command === "CAPTURE") {
     if (typeof message.captureId !== "string" || !message.captureId) throw new Error("Capture operation is missing.");
     controller.captureId = message.captureId;
@@ -236,7 +243,7 @@ async function handleInspectCommand(port, message) {
 
 async function sendInspectCommand(message) {
   const tabId = controller.boundTabId;
-  if (tabId === null) throw new Error("找不到目標分頁 / Target tab unavailable.");
+  if (tabId === null) throw new Error(t("targetTabMissing"));
   if (message.command === "START") await ensureContentScript(tabId);
   const response = await chrome.tabs.sendMessage(tabId, {
     type: "INSPECT_COMMAND",
@@ -305,9 +312,9 @@ async function handleDownload(port, message) {
 async function writeDirectory(port, message) {
   assertControlPort(port);
   const handle = await readDirectoryHandle();
-  if (!handle) throw new Error("尚未選擇本機資料夾。");
+  if (!handle) throw new Error(t("directoryNotSelected"));
   const permission = await directoryPermission(handle);
-  if (permission !== "granted") throw new Error("資料夾權限失效，請先按「重新授權」。");
+  if (permission !== "granted") throw new Error(t("directoryExpired"));
   const base64 = message.bufferBase64;
   if (typeof base64 !== "string" || base64.length < 8) throw new Error("Image data is missing or empty.");
   const mimeType = message.mimeType === "image/webp" ? "image/webp" : "image/png";
@@ -347,7 +354,7 @@ async function handleDirectoryUpdated(message, sender) {
 async function directoryMetadata() {
   const handle = await readDirectoryHandle();
   if (!handle) return {selected: false, name: "", permission: "none"};
-  return {selected: true, name: handle.name || "已選資料夾", permission: await directoryPermission(handle)};
+  return {selected: true, name: handle.name || t("directoryNone"), permission: await directoryPermission(handle)};
 }
 
 async function directoryPermission(handle) {
@@ -387,7 +394,7 @@ async function findAvailableFilename(handle, filename) {
       throw error;
     }
   }
-  throw new Error("找不到可用檔名。");
+  throw new Error(t("filenameUnavailable"));
 }
 
 function base64ToBytes(base64) {
@@ -430,7 +437,7 @@ function reply(port, message, response) {
 }
 
 function assertControlPort(port) {
-  if (controller.controlPort !== port || !port.__divsnapReady) throw new Error("控制面板連線已失效 / Control panel disconnected.");
+  if (controller.controlPort !== port || !port.__divsnapReady) throw new Error(t("controlDisconnected"));
 }
 
 function isControlIdentity(message) {

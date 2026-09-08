@@ -2,8 +2,10 @@ const DEFAULT_SETTINGS = {
   copyToClipboard: true,
   downloadEnabled: true,
   captureMode: "visible",
-  imageFormat: "png"
+  imageFormat: "png",
+  language: "zh-Hant"
 };
+const t = (...args) => DivSnapI18n.t(...args);
 
 const state = {
   controller: {boundTabId: null, sessionId: null},
@@ -33,6 +35,7 @@ const pendingCommands = new Map();
 const elements = {
   version: document.querySelector("#version"),
   shortcutSettings: document.querySelector("#shortcut-settings"),
+  languageToggle: document.querySelector("#language-toggle"),
   shortcutLabel: document.querySelector("#shortcut-label"),
   boundPage: document.querySelector("#bound-page"),
   connectionStatus: document.querySelector("#connection-status"),
@@ -71,21 +74,21 @@ const elements = {
   message: document.querySelector("#message")
 };
 
-init().catch((error) => setMessage(`初始化失敗：${formatError(error)}`));
+init().catch((error) => setMessage(t("initializing", {error: formatError(error)})));
 
 function handlePortMessage(message) {
   if (message?.type === "COMMAND_RESULT") {
     const pending = pendingCommands.get(message.requestId);
     if (!pending) return;
     pendingCommands.delete(message.requestId);
-    if (message.ok === false) pending.reject(new Error(message.error || "控制面板命令失敗。"));
+    if (message.ok === false) pending.reject(new Error(message.error || "Control panel command failed."));
     else pending.resolve(message);
     return;
   }
   if (message?.documentToken && message.documentToken !== panelContext.documentToken) return;
   if (message?.type === "CONTROL_BINDING") {
     const bindingChanged = message.bound && (message.tabId !== state.controller.boundTabId || message.sessionId !== state.controller.sessionId);
-    if (!message.bound || bindingChanged) cancelPendingCapture(message.bound ? "已切換目標分頁，上一個擷取已取消。" : "目標分頁已關閉，擷取已取消。", "warning");
+    if (!message.bound || bindingChanged) cancelPendingCapture(message.bound ? "Target tab changed; the previous capture was cancelled." : "Target tab closed; capture cancelled.", "warning");
     if (bindingChanged || !message.bound) {
       state.inspector = null;
       state.pageKey = "";
@@ -94,13 +97,13 @@ function handlePortMessage(message) {
     state.controller.boundTabId = message.bound ? message.tabId : null;
     if (message.sessionId !== undefined) state.controller.sessionId = message.sessionId;
     render();
-    loadProfiles().catch((error) => setMessage(`Profile 讀取失敗：${formatError(error)}`));
+    loadProfiles().catch((error) => setMessage(t("profileReadFailed", {error: formatError(error)})));
   } else if (message?.type === "CONTROL_TARGET_LOADING") {
-    cancelPendingCapture("目標分頁正在重新載入，擷取已取消。", "warning");
+    cancelPendingCapture(t("targetLoading"), "warning");
     state.inspector = null;
     state.pageKey = "";
     state.currentProfileId = "";
-    setMessage("目標分頁正在重新載入，請等待狀態更新。", "warning");
+    setMessage(t("targetLoading"), "warning");
     render();
   } else if (message?.type === "INSPECT_STATE") {
     if (message.sessionId !== state.controller.sessionId) return;
@@ -110,24 +113,24 @@ function handlePortMessage(message) {
     if (state.outputBusy && state.pendingCapture && !message.busy && /Capture failed|截圖失敗/.test(message.status || "")) {
       state.pendingCapture = null;
       state.outputBusy = false;
-      elements.progress.textContent = "準備就緒";
+      elements.progress.textContent = t("ready");
       setMessage(message.status, "error");
     }
-    if (oldPageKey !== state.pageKey) loadProfiles().catch((error) => setMessage(`Profile 讀取失敗：${formatError(error)}`));
+    if (oldPageKey !== state.pageKey) loadProfiles().catch((error) => setMessage(t("profileReadFailed", {error: formatError(error)})));
     render();
   } else if (message?.type === "CAPTURE_RESULT") {
     if (message.sessionId !== state.controller.sessionId) return;
     handleCaptureResult(message).catch((error) => {
       state.outputBusy = false;
-      elements.progress.textContent = "準備就緒";
-      setMessage(`輸出失敗：${formatError(error)}`);
+      elements.progress.textContent = t("ready");
+      setMessage(t("outputFailed", {error: formatError(error)}));
       render();
     });
   } else if (message?.type === "CAPTURE_REQUEST") {
     requestCapture(true);
   } else if (message?.type === "DIRECTORY_UPDATED") {
     applyDirectory(message);
-    setMessage(message.permission === "granted" ? "資料夾已更新。" : "資料夾權限仍未授予。", message.permission === "granted" ? "info" : "warning");
+    setMessage(t(message.permission === "granted" ? "directoryUpdated" : "directoryPermissionMissing"), message.permission === "granted" ? "info" : "warning");
     render();
   }
 }
@@ -162,6 +165,8 @@ async function rehandshake() {
 }
 
 async function init() {
+  await DivSnapI18n.load();
+  DivSnapI18n.onChange.add(() => { renderLanguageToggle(); render(); });
   elements.version.textContent = chrome.runtime.getManifest().version;
   bindEvents();
   await initPanelLayout();
@@ -176,6 +181,14 @@ async function init() {
   await loadProfiles();
   await sendInspectCommand("GET_STATE").catch(() => {});
   render();
+}
+
+function renderLanguageToggle() {
+  const english = DivSnapI18n.language === "en";
+  elements.languageToggle.textContent = t("languageToggleShort");
+  elements.languageToggle.title = t("languageToggle");
+  elements.languageToggle.setAttribute("aria-label", t("languageToggle"));
+  elements.languageToggle.dataset.language = english ? "en" : "zh-Hant";
 }
 
 function bindEvents() {
@@ -197,8 +210,9 @@ function bindEvents() {
     if (editing) return;
     const key = String(event.key || "");
     const undo = (event.ctrlKey || event.metaKey) && !event.shiftKey && key.toLowerCase() === "z";
+    const redo = (event.ctrlKey || event.metaKey) && event.shiftKey && key.toLowerCase() === "z";
     const clearChord = !event.ctrlKey && !event.metaKey && !event.altKey && key.toLowerCase() === "d";
-    if (!undo && !clearChord) return;
+    if (!undo && !redo && !clearChord) return;
     event.preventDefault();
     postPanelMessage({
       type: "DIVSNAP_PANEL_KEYDOWN",
@@ -223,6 +237,11 @@ function bindEvents() {
     if (!document.hidden) refreshShortcut();
   });
   elements.shortcutSettings.addEventListener("click", openShortcutSettings);
+  elements.languageToggle.addEventListener("click", async () => {
+    await DivSnapI18n.set(DivSnapI18n.language === "en" ? "zh-Hant" : "en");
+    renderLanguageToggle();
+    render();
+  });
   elements.toggleInspect.addEventListener("click", toggleInspect);
   elements.unlock.addEventListener("click", () => sendInspectCommand("UNLOCK"));
   elements.undo.addEventListener("click", () => sendInspectCommand("UNDO"));
@@ -261,7 +280,8 @@ async function loadSettings() {
     copyToClipboard: stored.copyToClipboard === undefined ? DEFAULT_SETTINGS.copyToClipboard : Boolean(stored.copyToClipboard),
     downloadEnabled: stored.downloadEnabled === undefined ? stored.downloadPng !== undefined ? Boolean(stored.downloadPng) : DEFAULT_SETTINGS.downloadEnabled : Boolean(stored.downloadEnabled),
     captureMode: stored.captureMode === "full" ? "full" : "visible",
-    imageFormat: stored.imageFormat === "webp" ? "webp" : "png"
+    imageFormat: stored.imageFormat === "webp" ? "webp" : "png",
+    language: stored.language === "en" ? "en" : "zh-Hant"
   };
   elements.copyToClipboard.checked = state.settings.copyToClipboard;
   elements.downloadEnabled.checked = state.settings.downloadEnabled;
@@ -275,7 +295,8 @@ async function persistSettings() {
     copyToClipboard: elements.copyToClipboard.checked,
     downloadEnabled: elements.downloadEnabled.checked,
     captureMode: document.querySelector('input[name="captureMode"]:checked').value,
-    imageFormat: document.querySelector('input[name="imageFormat"]:checked').value
+    imageFormat: document.querySelector('input[name="imageFormat"]:checked').value,
+    language: DivSnapI18n.language
   };
   await chrome.storage.sync.set(state.settings);
   render();
@@ -299,7 +320,7 @@ async function loadSelectedProfile(profile) {
 async function requestCapture(fromInspector = false) {
   if (!state.controller.sessionId || state.outputBusy || (!fromInspector && !state.inspector?.canCapture)) return;
   if (!state.settings.copyToClipboard && !state.settings.downloadEnabled) {
-    setMessage("請至少開啟一種輸出方式。", "warning");
+    setMessage(t("outputDisabled"), "warning");
     return;
   }
   state.pendingCapture = {
@@ -310,14 +331,14 @@ async function requestCapture(fromInspector = false) {
     }
   };
   state.outputBusy = true;
-  elements.progress.textContent = "正在擷取…";
+  elements.progress.textContent = t("capturing");
   render();
   try {
     await sendInspectCommand("CAPTURE", {captureId: state.pendingCapture.captureId, settings: {captureMode: state.settings.captureMode}});
   } catch (error) {
     state.pendingCapture = null;
     state.outputBusy = false;
-    elements.progress.textContent = "準備就緒";
+    elements.progress.textContent = t("ready");
     setMessage(formatError(error));
     render();
   }
@@ -328,8 +349,8 @@ async function handleCaptureResult(message) {
   if (message.ok === false) {
     state.pendingCapture = null;
     state.outputBusy = false;
-    elements.progress.textContent = "準備就緒";
-    setMessage(`截圖失敗：${message.error || "未知錯誤"}`, "error");
+    elements.progress.textContent = t("ready");
+    setMessage(t("captureFailed", {error: message.error || t("unknownError")}), "error");
     render();
     return;
   }
@@ -343,7 +364,7 @@ async function handleCaptureResult(message) {
 async function processCapture() {
   const capture = state.lastCapture;
   state.outputBusy = true;
-  elements.progress.textContent = "正在處理輸出…";
+  elements.progress.textContent = t("processingOutput");
   render();
   const settings = capture.settings;
   const pngBlob = base64ToBlob(capture.bufferBase64, "image/png");
@@ -352,6 +373,7 @@ async function processCapture() {
     settings,
     pngBlob,
     outputBlob: null,
+    encodeError: "",
     filename: `${capture.filenameBase || "divsnap"}.${settings.imageFormat === "webp" ? "webp" : "png"}`,
     failedCopy: Boolean(settings.copyToClipboard),
     failedDownload: Boolean(settings.downloadEnabled),
@@ -362,13 +384,16 @@ async function processCapture() {
     try {
       output.outputBlob = settings.imageFormat === "webp" ? await encodeWebp(pngBlob) : pngBlob;
     } catch (error) {
-      output.messages.push(`WebP 編碼失敗：${formatError(error)}`);
+      output.encodeError = formatError(error);
+      output.failedDownload = false;
+      output.messages.push(t("webpFailed", {error: output.encodeError}));
+      console.error("DivSnap lossless WebP encoding failed", error);
     }
   }
   await runOutput("copy");
   await runOutput("download");
   state.outputBusy = false;
-  elements.progress.textContent = "準備就緒";
+  elements.progress.textContent = t("ready");
   renderOutput();
   render();
 }
@@ -376,11 +401,11 @@ async function processCapture() {
 async function retryOutput(kind) {
   if (!state.lastOutput || state.outputBusy) return;
   state.outputBusy = true;
-  elements.progress.textContent = kind === "copy" ? "正在複製…" : "正在重試儲存…";
+  elements.progress.textContent = t(kind === "copy" ? "copying" : "retryingSave");
   render();
   await runOutput(kind);
   state.outputBusy = false;
-  elements.progress.textContent = "準備就緒";
+  elements.progress.textContent = t("ready");
   renderOutput();
   render();
 }
@@ -394,17 +419,16 @@ async function runOutput(kind) {
       await copyPng(output.pngBlob);
       output.failedCopy = false;
       output.messages = output.messages.filter((message) => !message.startsWith("剪貼簿"));
-      output.messages.push("PNG 已複製到剪貼簿");
+      output.messages.push(DivSnapI18n.language === "en" ? "PNG copied to clipboard" : "PNG 已複製到剪貼簿");
     } catch (error) {
       output.messages = output.messages.filter((message) => !message.startsWith("剪貼簿"));
-      output.messages.push(`剪貼簿複製失敗：${formatError(error)}`);
+      output.messages.push(t("clipboardFailed", {error: formatError(error)}));
     }
     return;
   }
   if (!output.settings.downloadEnabled || !output.failedDownload) return;
   if (!output.outputBlob) {
-    output.messages = output.messages.filter((message) => !message.startsWith("WebP"));
-    output.messages.push("WebP 編碼失敗，無法儲存。");
+    if (!output.encodeError) output.messages.push(DivSnapI18n.language === "en" ? "WebP encoding failed; it could not be saved." : "WebP 編碼失敗，無法儲存。");
     return;
   }
   try {
@@ -413,30 +437,31 @@ async function runOutput(kind) {
       : await downloadFromBrowser(output.filename, output.outputBlob);
     output.failedDownload = false;
     output.messages = output.messages.filter((message) => !message.startsWith("儲存失敗") && !message.startsWith("下載失敗") && !message.startsWith("WebP"));
-    output.messages.push(output.settings.directorySelected ? `已儲存 ${filename}` : "已送至瀏覽器 Downloads");
+    output.messages.push(output.settings.directorySelected ? t("saved", {filename}) : t("sentDownloads"));
   } catch (error) {
     if (output.settings.directorySelected) state.directory.permission = "denied";
     output.messages = output.messages.filter((message) => !message.startsWith("儲存失敗") && !message.startsWith("下載失敗"));
-    output.messages.push(`${output.settings.directorySelected ? "儲存" : "下載"}失敗：${formatError(error)}`);
+    output.messages.push(t("saveFailed", {action: t(output.settings.directorySelected ? "saving" : "downloading"), error: formatError(error)}));
   }
 }
 
 function render() {
+  renderLanguageToggle();
   const inspector = state.inspector;
   renderShortcut(state.shortcut);
   const bound = Number.isInteger(state.controller.boundTabId);
-  elements.boundPage.textContent = bound ? inspector?.page?.label || `Tab ${state.controller.boundTabId}` : "尚未綁定網頁分頁";
+  elements.boundPage.textContent = bound ? inspector?.page?.label || `Tab ${state.controller.boundTabId}` : t("unboundPage");
   elements.connectionStatus.textContent = !bound
-    ? "請從網頁分頁點擊 DivSnap 圖示。"
+    ? t("clickExtension")
     : !inspector?.running
-      ? "已綁定；按「開始選取」啟動頁面事件攔截。"
+      ? (DivSnapI18n.language === "en" ? "Bound. Start inspection to intercept page events." : "已綁定；按「開始選取」啟動頁面事件攔截。")
       : inspector.paused
-        ? "選取已暫停；本次選取仍保留。"
+        ? (DivSnapI18n.language === "en" ? "Inspection paused; this selection is retained." : "選取已暫停；本次選取仍保留。")
         : inspector.busy
-          ? "正在擷取，請稍候。"
-          : "已連線；頁面事件攔截中。";
+          ? t("capturing")
+          : (DivSnapI18n.language === "en" ? "Connected; page events are being intercepted." : "已連線；頁面事件攔截中。");
   elements.connectionDot.dataset.state = inspector?.busy ? "busy" : bound && inspector?.running ? "ready" : "";
-  elements.toggleInspect.textContent = inspector?.running && !inspector.paused ? "暫停選取" : inspector?.running ? "開始選取" : "開始選取";
+  elements.toggleInspect.textContent = inspector?.running && !inspector.paused ? t("pauseInspect") : t("startInspect");
   elements.toggleInspect.disabled = !bound || state.outputBusy;
   elements.unlock.disabled = !inspector?.locked || inspector?.busy;
   elements.undo.disabled = !inspector?.historyLength;
@@ -450,13 +475,13 @@ function render() {
   renderProfileIssues();
   renderDirectory();
   elements.capture.disabled = state.outputBusy || !inspector?.canCapture || (!state.settings.copyToClipboard && !state.settings.downloadEnabled);
-  if (!state.outputBusy && !state.lastOutput) elements.progress.textContent = inspector?.busy ? "正在擷取…" : "準備就緒";
+  if (!state.outputBusy && !state.lastOutput) elements.progress.textContent = inspector?.busy ? t("capturing") : t("ready");
   renderOutput();
 }
 
 function renderCandidates() {
   const candidates = state.inspector?.candidates || [];
-  elements.candidates.replaceChildren(...(candidates.length ? candidates : [{label: "尚未開始選取"}]).map((candidate, index) => {
+  elements.candidates.replaceChildren(...(candidates.length ? candidates : [{label: t("notStarted")}]).map((candidate, index) => {
     const option = document.createElement("option");
     option.value = String(index);
     option.textContent = candidate.label;
@@ -468,28 +493,28 @@ function renderCandidates() {
 
 function renderSelection() {
   const selection = state.inspector?.selection || [];
-  elements.selectionCount.textContent = `${selection.length} 項`;
-  elements.selectionStatus.textContent = state.inspector?.status || (selection.length ? "已保留選取。" : "鎖定預覽或用 Shift＋點擊加入元素。");
+  elements.selectionCount.textContent = t("items", {count: selection.length});
+  elements.selectionStatus.textContent = state.inspector?.status || (selection.length ? t("selectionKept") : t("selectionEmpty"));
   elements.selectionList.replaceChildren(...(selection.length ? selection.map((item, index) => {
     const row = document.createElement("div");
     row.className = "selection-row";
     const label = document.createElement("span");
-    label.textContent = `${item.valid ? "" : "失效 · "}${item.label}`;
+    label.textContent = `${item.valid ? "" : t("invalid")}${item.label}`;
     const remove = document.createElement("button");
     remove.className = "secondary-button";
     remove.type = "button";
-    remove.textContent = "移除";
+    remove.textContent = t("remove");
     remove.addEventListener("click", () => sendInspectCommand("REMOVE_SELECTION", {index}));
     row.append(label, remove);
     return row;
-  }) : [emptyState("鎖定預覽或用 Shift＋點擊加入元素。")]));
+  }) : [emptyState(t("selectionEmpty"))]));
 }
 
 function renderProfiles() {
   const profiles = currentProfiles();
   const current = profiles.some((profile) => profile.id === state.currentProfileId) ? state.currentProfileId : "";
   if (current !== state.currentProfileId) state.currentProfileId = current;
-  elements.profileSelect.replaceChildren(...[new Option(profiles.length ? "選取 Profile" : "目前頁面沒有 Profile", ""), ...profiles.map((profile) => new Option(profile.name, profile.id))]);
+  elements.profileSelect.replaceChildren(...[new Option(profiles.length ? t("chooseProfile") : t("profileEmpty"), ""), ...profiles.map((profile) => new Option(profile.name, profile.id))]);
   elements.profileSelect.value = state.currentProfileId;
   const hasProfile = Boolean(state.currentProfileId);
   elements.loadProfile.disabled = !hasProfile || !state.controller.sessionId;
@@ -498,8 +523,8 @@ function renderProfiles() {
   elements.updateProfile.disabled = !hasProfile || !validSelectionDescriptors().length;
   elements.newProfile.disabled = !state.pageKey || !validSelectionDescriptors().length;
   elements.profileHint.textContent = state.inspector?.profileResolution?.length
-    ? "已解析 Profile；問題項目需補選或明確略過。"
-    : "載入後會先解析並預覽，不會自動截圖。";
+    ? t("profileResolved")
+    : t("profileHint");
 }
 
 function renderProfileIssues() {
@@ -512,7 +537,7 @@ function renderProfileIssues() {
     const dismiss = document.createElement("button");
     dismiss.className = "danger-button";
     dismiss.type = "button";
-    dismiss.textContent = "略過";
+    dismiss.textContent = t("dismiss");
     dismiss.addEventListener("click", () => sendInspectCommand("DISMISS_PROFILE_TARGET", {index: item.index}));
     row.append(label, dismiss);
     return row;
@@ -521,10 +546,10 @@ function renderProfileIssues() {
 
 function renderDirectory() {
   const directory = state.directory;
-  elements.directoryName.textContent = directory.selected ? directory.name : "瀏覽器 Downloads";
+  elements.directoryName.textContent = directory.selected ? directory.name : t("downloads");
   elements.directoryStatus.textContent = directory.selected
-    ? directory.permission === "granted" ? "File System Access · 已授權" : directory.permission === "denied" ? "權限失效，請重新授權" : "需要重新授權後才能寫入"
-    : "尚未選擇本機資料夾";
+    ? directory.permission === "granted" ? t("directoryGranted") : directory.permission === "denied" ? t("directoryDenied") : t("directoryNeedsAuthorization")
+    : t("noDirectory");
   elements.reauthorizeDirectory.hidden = !directory.selected || directory.permission === "granted";
 }
 
@@ -544,10 +569,10 @@ function renderOutput() {
 }
 
 function renderShortcut(shortcut) {
-  const label = shortcut ? `啟動選取：${formatShortcut(shortcut)}` : "啟動選取：未設定";
+  const label = shortcut ? t("shortcutSet", {shortcut: formatShortcut(shortcut)}) : t("shortcutUnset");
   elements.shortcutLabel.textContent = label;
-  elements.shortcutLabel.title = shortcut || "啟動選取：未設定";
-  elements.shortcutLabel.setAttribute("aria-label", `啟動選取快捷鍵：${shortcut || "未設定"}`);
+  elements.shortcutLabel.title = shortcut || t("shortcutUnset");
+  elements.shortcutLabel.setAttribute("aria-label", t("shortcutAria", {shortcut: shortcut || t("unset")}));
 }
 
 function formatShortcut(shortcut) {
@@ -566,14 +591,14 @@ function formatShortcut(shortcut) {
 async function createProfile() {
   const name = elements.profileName.value.trim();
   const targets = validSelectionDescriptors();
-  if (!name) return setMessage("請先輸入 Profile 名稱。", "warning");
-  if (!targets.length) return setMessage("請先選取至少一個有效元素。", "warning");
-  const profile = {id: createId(), name, pageKey: state.pageKey, pageLabel: state.inspector?.page?.label || "目前頁面", targets, updatedAt: new Date().toISOString()};
+  if (!name) return setMessage(t("enterProfile"), "warning");
+  if (!targets.length) return setMessage(t("selectElement"), "warning");
+  const profile = {id: createId(), name, pageKey: state.pageKey, pageLabel: state.inspector?.page?.label || (DivSnapI18n.language === "en" ? "Current page" : "目前頁面"), targets, updatedAt: new Date().toISOString()};
   state.profiles.push(profile);
   state.currentProfileId = profile.id;
   await saveProfiles();
   elements.profileName.value = "";
-  setMessage(`Profile「${name}」已新增。`, "info");
+  setMessage(t("profileCreated", {name}), "info");
   render();
 }
 
@@ -581,12 +606,12 @@ async function renameProfile() {
   const profile = selectedProfile();
   const name = elements.profileName.value.trim();
   if (!profile) return;
-  if (!name) return setMessage("請先輸入新的 Profile 名稱。", "warning");
+  if (!name) return setMessage(t("enterNewProfile"), "warning");
   profile.name = name;
   profile.updatedAt = new Date().toISOString();
   await saveProfiles();
   elements.profileName.value = "";
-  setMessage(`Profile 已重新命名為「${name}」。`, "info");
+  setMessage(t("profileRenamed", {name}), "info");
   render();
 }
 
@@ -594,25 +619,25 @@ async function updateProfile() {
   const profile = selectedProfile();
   const targets = validSelectionDescriptors();
   if (!profile) return;
-  if (!targets.length) return setMessage("請先選取至少一個有效元素。", "warning");
+  if (!targets.length) return setMessage(t("selectElement"), "warning");
   profile.targets = targets;
   profile.pageLabel = state.inspector?.page?.label || profile.pageLabel;
   profile.updatedAt = new Date().toISOString();
   await saveProfiles();
   await loadSelectedProfile(profile).catch((error) => setMessage(formatError(error)));
-  setMessage(`Profile「${profile.name}」已更新。`, "info");
+  setMessage(t("profileUpdated", {name: profile.name}), "info");
   render();
 }
 
 async function deleteProfile() {
   const profile = selectedProfile();
   if (!profile) return;
-  if (!confirm(`刪除 Profile「${profile.name}」？`)) return;
+  if (!confirm(t("deleteProfile", {name: profile.name}))) return;
   state.profiles = state.profiles.filter((item) => item.id !== profile.id);
   state.currentProfileId = "";
   await saveProfiles();
   await sendInspectCommand("CLEAR_PROFILE").catch(() => {});
-  setMessage("Profile 已刪除。", "info");
+  setMessage(t("profileDeleted"), "info");
   render();
 }
 
@@ -652,9 +677,9 @@ async function reauthorizeDirectory() {
 async function openDirectorySettings(mode) {
   try {
     await sendMessage({type: "OPEN_DIRECTORY_SETTINGS", mode});
-    setMessage("已開啟資料夾設定分頁。", "info");
+    setMessage(t("openedDirectory"), "info");
   } catch (error) {
-    setMessage(`無法開啟資料夾設定：${formatError(error)}`);
+    setMessage(t("openDirectoryFailed", {error: formatError(error)}));
   }
 }
 
@@ -691,9 +716,12 @@ function encodeWebp(pngBlob) {
       const canvas = document.createElement("canvas");
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
-      canvas.getContext("2d").drawImage(image, 0, 0);
+      const context = canvas.getContext("2d", {willReadFrequently: true});
+      context.drawImage(image, 0, 0);
       URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => blob?.type === "image/webp" ? resolve(blob) : reject(new Error("瀏覽器未產生 WebP。")), "image/webp", .95);
+      import("../vendor/webp/webp-lossless.js")
+        .then(({encodeLosslessWebp}) => encodeLosslessWebp(context.getImageData(0, 0, canvas.width, canvas.height)))
+        .then((buffer) => resolve(new Blob([buffer], {type: "image/webp"})), reject);
     };
     image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("PNG 解碼失敗。")); };
     image.src = url;
@@ -731,7 +759,7 @@ function cancelPendingCapture(text, kind = "warning") {
   if (!state.outputBusy && !state.pendingCapture) return;
   state.pendingCapture = null;
   state.outputBusy = false;
-  elements.progress.textContent = "準備就緒";
+  elements.progress.textContent = t("ready");
   setMessage(text, kind);
 }
 
@@ -761,7 +789,7 @@ function createId() {
 }
 
 function resolutionLabel(status) {
-  return {missing: "缺失", ambiguous: "多重命中", needs_confirmation: "待確認"}[status] || "待處理";
+  return t({missing: "resolutionMissing", ambiguous: "resolutionAmbiguous", needs_confirmation: "resolutionConfirm"}[status] || "resolutionPending");
 }
 
 function base64ToBlob(base64, mimeType) {
@@ -792,7 +820,7 @@ function openShortcutSettings() {
   const isEdge = navigator.userAgentData?.brands?.some(({brand}) => brand === "Microsoft Edge") || /Edg\//.test(navigator.userAgent);
   chrome.tabs.create({url: `${isEdge ? "edge" : "chrome"}://extensions/shortcuts`}, () => {
     const error = chrome.runtime.lastError;
-    if (error) setMessage(`無法開啟快捷鍵設定：${error.message}`);
+    if (error) setMessage(t("shortcutOpenFailed", {error: error.message}));
   });
 }
 
@@ -811,28 +839,19 @@ async function initPanelLayout() {
   for (const section of sections) {
     section.addEventListener("toggle", () => {
       chrome.storage.local.set({panelSections: Object.fromEntries(sections.map((item) => [item.id, item.open]))}).catch((error) => setMessage(formatError(error)));
+      requestAnimationFrame(reportHeight);
     });
   }
   const shell = document.querySelector(".control-shell");
   let lastHeight = 0;
-  const measureHeight = () => {
-    let bottom = 0;
-    for (const child of shell.children) {
-      if (!(child instanceof HTMLElement) || child.hidden) continue;
-      if (getComputedStyle(child).display === "none") continue;
-      bottom = Math.max(bottom, child.offsetTop + child.offsetHeight);
-    }
-    return Math.ceil(bottom + (parseFloat(getComputedStyle(shell).paddingBottom) || 0));
-  };
   const reportHeight = () => {
     if (document.body.dataset.panelCollapsed === "true") return;
-    const height = measureHeight();
+    const height = Math.ceil(shell.getBoundingClientRect().height);
     if (height === lastHeight || height < 80) return;
     lastHeight = height;
     postPanelMessage({type: "DIVSNAP_PANEL_HEIGHT", height});
   };
   new ResizeObserver(reportHeight).observe(shell);
-  for (const section of sections) section.addEventListener("toggle", () => requestAnimationFrame(reportHeight));
   reportHeight();
   const handle = document.querySelector("#panel-drag");
   let pointerId = null;

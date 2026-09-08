@@ -11,8 +11,8 @@
     <header>
       <img src="../icons/icon-48.png" alt="">
       <div>
-        <h1>DivSnap 資料夾設定</h1>
-        <p>選擇資料夾後，截圖會直接寫入該位置。</p>
+        <h1 data-i18n="settingsTitle">DivSnap 資料夾設定</h1>
+        <p data-i18n="settingsDescription">選擇資料夾後，截圖會直接寫入該位置。</p>
       </div>
     </header>
     <section class="directory-card" aria-live="polite">
@@ -20,11 +20,12 @@
       <span id="directory-status">尚未取得資料夾權限</span>
     </section>
     <div class="actions">
-      <button id="choose" type="button">選擇資料夾</button>
-      <button id="reauthorize" class="secondary" type="button">重新授權目前資料夾</button>
+      <button id="choose" type="button" data-i18n="chooseCurrent">選擇資料夾</button>
+      <button id="reauthorize" class="secondary" type="button" data-i18n="reauthorizeCurrent">重新授權目前資料夾</button>
     </div>
     <p id="message" class="message" role="status" aria-live="polite"></p>
   </main>
+  <script src="../i18n.js"></script>
   <script src="directory.js"></script>
 </body>
 </html>

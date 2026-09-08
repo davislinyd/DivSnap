@@ -11,86 +11,88 @@
     <header class="topbar">
       <div class="brand-mark" aria-hidden="true"><img src="../icons/icon-32.png" alt=""></div>
       <div class="brand-copy">
-        <h1 id="panel-drag" title="按住拖曳以移動面板">DivSnap <span id="version">1.4.0</span></h1>
+        <h1 id="panel-drag" title="按住拖曳以移動面板">DivSnap <span id="version">1.4.1</span></h1>
       </div>
       <div class="shortcut-actions">
-        <button id="shortcut-settings" class="shortcut-button" type="button" aria-label="開啟瀏覽器快捷鍵設定" title="開啟瀏覽器快捷鍵設定">快捷鍵設定</button>
+        <button id="shortcut-settings" class="shortcut-button" type="button" data-i18n="shortcutSettings" data-i18n-aria-label="shortcutSettingsTitle" data-i18n-title="shortcutSettingsTitle">快捷鍵設定</button>
         <span id="shortcut-label" class="shortcut-status" aria-live="polite">啟動選取：未設定</span>
       </div>
-      <button id="panel-close" type="button" aria-label="關閉 DivSnap 面板" title="關閉（連按兩下 Esc）">×</button>
+      <button id="language-toggle" class="language-toggle" type="button"></button>
+      <button id="panel-close" type="button" data-i18n-aria-label="closePanel" data-i18n-title="closePanelTitle" aria-label="關閉 DivSnap 面板" title="關閉（連按兩下 Esc）">×</button>
     </header>
 
     <section class="binding-card" aria-labelledby="binding-title">
-      <div class="section-heading"><span id="binding-title">綁定頁面</span><span id="connection-dot" class="status-dot" aria-hidden="true"></span></div>
+      <div class="section-heading"><span id="binding-title" data-i18n="boundPage">綁定頁面</span><span id="connection-dot" class="status-dot" aria-hidden="true"></span></div>
       <strong id="bound-page">尚未綁定網頁分頁</strong>
       <p id="connection-status" class="subtle">請從網頁分頁點擊 DivSnap 圖示。</p>
     </section>
 
     <details id="profile-section" class="section-card" aria-labelledby="profile-title">
-      <summary class="section-heading"><span id="profile-title">Profile</span><span class="unit">只保存選取範圍</span></summary>
+      <summary class="section-heading"><span id="profile-title" data-i18n="profile">Profile</span><span class="unit" data-i18n="profileUnit">只保存選取範圍</span></summary>
       <div class="profile-row">
-        <select id="profile-select" aria-label="選取 Profile"><option value="">目前頁面沒有 Profile</option></select>
-        <button id="load-profile" class="secondary-button" type="button">載入</button>
+        <select id="profile-select" aria-label="選取 Profile"><option value="" data-i18n="profileEmpty">目前頁面沒有 Profile</option></select>
+        <button id="load-profile" class="secondary-button" type="button" data-i18n="load">載入</button>
       </div>
       <div class="profile-edit-row">
-        <input id="profile-name" type="text" maxlength="80" placeholder="手動輸入名稱" aria-label="Profile 名稱">
-        <button id="new-profile" class="secondary-button" type="button">新增</button>
-        <button id="update-profile" class="secondary-button" type="button">更新</button>
-        <button id="rename-profile" class="secondary-button" type="button">重新命名</button>
-        <button id="delete-profile" class="danger-button" type="button">刪除</button>
+        <input id="profile-name" type="text" maxlength="80" data-i18n-placeholder="profilePlaceholder" placeholder="手動輸入名稱" data-i18n-aria-label="profileName" aria-label="Profile 名稱">
+        <button id="new-profile" class="secondary-button" type="button" data-i18n="create">新增</button>
+        <button id="update-profile" class="secondary-button" type="button" data-i18n="update">更新</button>
+        <button id="rename-profile" class="secondary-button" type="button" data-i18n="rename">重新命名</button>
+        <button id="delete-profile" class="danger-button" type="button" data-i18n="delete">刪除</button>
       </div>
-      <p id="profile-hint" class="subtle">載入後會先解析並預覽，不會自動截圖。</p>
+      <p id="profile-hint" class="subtle" data-i18n="profileHint">載入後會先解析並預覽，不會自動截圖。</p>
       <div id="profile-issues" class="issue-list" aria-live="polite"></div>
     </details>
 
     <section class="section-card" aria-labelledby="selection-title">
-      <div class="section-heading"><span id="selection-title">選取工作區</span><span class="unit">DOM 參照留在頁面</span></div>
+      <div class="section-heading"><span id="selection-title" data-i18n="workspace">選取工作區</span><span class="unit" data-i18n="workspaceUnit">DOM 參照留在頁面</span></div>
       <div class="workspace-actions">
-        <button id="toggle-inspect" class="primary-button" type="button">開始選取</button>
-        <button id="unlock" class="secondary-button" type="button">解鎖預覽</button>
-        <button id="undo" class="secondary-button" type="button">撤銷</button>
-        <button id="clear" class="secondary-button" type="button">清除</button>
+        <button id="toggle-inspect" class="primary-button" type="button" data-i18n="startInspect">開始選取</button>
+        <button id="unlock" class="secondary-button" type="button" data-i18n="unlock">解鎖預覽</button>
+        <button id="undo" class="secondary-button" type="button" data-i18n="undo">撤銷</button>
+        <button id="clear" class="secondary-button" type="button" data-i18n="clear">清除</button>
       </div>
-      <label class="field-label" for="candidates">候選層級與重疊元素</label>
-      <select id="candidates" class="wide-select" aria-label="候選層級與重疊元素"><option>尚未開始選取</option></select>
+      <label class="field-label" for="candidates" data-i18n="candidates">候選層級與重疊元素</label>
+      <select id="candidates" class="wide-select" data-i18n-aria-label="candidates" aria-label="候選層級與重疊元素"><option data-i18n="notStarted">尚未開始選取</option></select>
       <div class="navigation-actions">
-        <button id="parent" class="secondary-button" type="button">↑ 父層</button>
-        <button id="child" class="secondary-button" type="button">↓ 子層</button>
-        <button id="toggle-current" class="secondary-button" type="button">加入／移除目前項目</button>
+        <button id="parent" class="secondary-button" type="button" data-i18n="parent">↑ 父層</button>
+        <button id="child" class="secondary-button" type="button" data-i18n="child">↓ 子層</button>
+        <button id="toggle-current" class="secondary-button" type="button" data-i18n="toggleCurrent">加入／移除目前項目</button>
       </div>
       <p id="selection-status" class="status-text" role="status" aria-live="polite">尚未開始。</p>
-      <div class="selection-heading"><strong>已選清單</strong><span id="selection-count">0 項</span></div>
-      <div id="selection-list" class="selection-list"><p class="empty-state">鎖定預覽或用 Shift＋點擊加入元素。</p></div>
+      <div class="selection-heading"><strong data-i18n="selectionList">已選清單</strong><span id="selection-count">0 項</span></div>
+      <div id="selection-list" class="selection-list"><p class="empty-state" data-i18n="selectionEmpty">鎖定預覽或用 Shift＋點擊加入元素。</p></div>
     </section>
 
     <details id="output-section" class="section-card" aria-labelledby="output-title">
-      <summary class="section-heading"><span id="output-title">輸出設定</span><span class="unit">本次擷取固定設定</span></summary>
+      <summary class="section-heading"><span id="output-title" data-i18n="output">輸出設定</span><span class="unit" data-i18n="outputUnit">本次擷取固定設定</span></summary>
       <div class="mode-options">
-        <label class="mode-option"><input type="radio" name="captureMode" value="visible"><span><strong>Visible</strong><small>目前可見範圍</small></span></label>
-        <label class="mode-option"><input type="radio" name="captureMode" value="full"><span><strong>Full</strong><small>拼接完整 layout box</small></span></label>
+        <label class="mode-option"><input type="radio" name="captureMode" value="visible"><span><strong>Visible</strong><small data-i18n="visibleDetail">目前可見範圍</small></span></label>
+        <label class="mode-option"><input type="radio" name="captureMode" value="full"><span><strong>Full</strong><small data-i18n="fullDetail">拼接完整 layout box</small></span></label>
       </div>
       <div class="format-options">
-        <label class="format-option"><input type="radio" name="imageFormat" value="png"><span><strong>PNG</strong><small>無損，預設格式</small></span></label>
-        <label class="format-option"><input type="radio" name="imageFormat" value="webp"><span><strong>WebP</strong><small>高品質有損，品質 0.95</small></span></label>
+        <label class="format-option"><input type="radio" name="imageFormat" value="png"><span><strong>PNG</strong><small data-i18n="pngDetail">無損，預設格式</small></span></label>
+        <label class="format-option"><input type="radio" name="imageFormat" value="webp"><span><strong>WebP</strong><small data-i18n="webpDetail">高品質有損，品質 0.95</small></span></label>
       </div>
-      <label class="setting-row"><span><strong>複製到剪貼簿</strong><small>固定使用 PNG</small></span><input id="copyToClipboard" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
-      <label class="setting-row"><span><strong>儲存圖片</strong><small>未選資料夾時使用瀏覽器 Downloads</small></span><input id="downloadEnabled" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
+      <label class="setting-row"><span><strong data-i18n="copy">複製到剪貼簿</strong><small data-i18n="copyDetail">固定使用 PNG</small></span><input id="copyToClipboard" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
+      <label class="setting-row"><span><strong data-i18n="save">儲存圖片</strong><small data-i18n="saveDetail">未選資料夾時使用瀏覽器 Downloads</small></span><input id="downloadEnabled" type="checkbox"><span class="switch" aria-hidden="true"></span></label>
       <div class="directory-row">
         <div class="directory-copy"><strong id="directory-name">瀏覽器 Downloads</strong><small id="directory-status">尚未選擇本機資料夾</small></div>
-        <button id="choose-directory" class="secondary-button" type="button">選擇資料夾</button>
-        <button id="reauthorize-directory" class="secondary-button" type="button" hidden>重新授權</button>
+        <button id="choose-directory" class="secondary-button" type="button" data-i18n="chooseDirectory">選擇資料夾</button>
+        <button id="reauthorize-directory" class="secondary-button" type="button" data-i18n="reauthorize" hidden>重新授權</button>
       </div>
     </details>
 
     <section class="action-bar" aria-labelledby="action-title">
-      <div class="progress-copy"><span id="action-title" class="eyebrow">CAPTURE</span><strong id="progress">準備就緒</strong></div>
-      <button id="capture" class="capture-button" type="button" disabled>儲存圖片</button>
+      <div class="progress-copy"><span id="action-title" class="eyebrow" data-i18n="capture">CAPTURE</span><strong id="progress">準備就緒</strong></div>
+      <button id="capture" class="capture-button" type="button" disabled data-i18n="saveImage">儲存圖片</button>
     </section>
     <div id="result" class="result" role="status" aria-live="polite"></div>
-    <div class="retry-row"><button id="retry-copy" class="secondary-button" type="button" hidden>點擊複製 PNG</button><button id="retry-output" class="secondary-button" type="button" hidden>重試儲存</button></div>
+    <div class="retry-row"><button id="retry-copy" class="secondary-button" type="button" hidden data-i18n="retryCopy">點擊複製 PNG</button><button id="retry-output" class="secondary-button" type="button" hidden data-i18n="retryOutput">重試儲存</button></div>
     <p id="message" class="message" role="alert" aria-live="assertive"></p>
-    <footer>拖曳 DivSnap 標題移動 · 連按兩下 Esc 關閉</footer>
+    <footer data-i18n="footer">拖曳 DivSnap 標題移動 · 連按兩下 Esc 關閉</footer>
   </main>
+  <script src="../i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

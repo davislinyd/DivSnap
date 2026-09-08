@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DivSnap",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Inspect a DOM element and capture its visible or full layout box.",
   "permissions": [
     "activeTab",
@@ -28,6 +28,9 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "commands": {
     "start-inspect": {
       "description": "Start DOM Inspector"
@@ -40,6 +43,8 @@
         "popup/popup.html",
         "popup/popup.css",
         "popup/popup.js",
+        "i18n.js",
+        "vendor/webp/*",
         "icons/icon-16.png",
         "icons/icon-32.png",
         "icons/icon-48.png",

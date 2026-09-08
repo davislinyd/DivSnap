@@ -1,4 +1,5 @@
 const query = new URLSearchParams(location.search);
+const t = (...args) => DivSnapI18n.t(...args);
 const state = {
   targetTabId: Number(query.get("targetTabId")),
   sessionId: query.get("sessionId") || "",
@@ -14,9 +15,12 @@ const elements = {
   message: document.querySelector("#message")
 };
 
-init().catch((error) => setMessage(`初始化失敗：${formatError(error)}`));
+init().catch((error) => setMessage(t("initializing", {error: formatError(error)})));
 
 async function init() {
+  await DivSnapI18n.load();
+  document.title = t("settingsTitle");
+  DivSnapI18n.onChange.add(() => { document.title = t("settingsTitle"); render(); });
   state.handle = await readDirectoryHandle();
   render();
   elements.choose.addEventListener("click", chooseDirectory);
@@ -25,26 +29,26 @@ async function init() {
 }
 
 async function chooseDirectory() {
-  if (!window.showDirectoryPicker) return setMessage("目前瀏覽器不支援選擇資料夾。");
+  if (!window.showDirectoryPicker) return setMessage(t("folderUnsupported"));
   try {
     const handle = await window.showDirectoryPicker({mode: "readwrite"});
     await saveDirectoryHandle(handle);
     state.handle = handle;
     await complete(handle, "granted");
   } catch (error) {
-    if (error?.name !== "AbortError") setMessage(`選擇資料夾失敗：${formatError(error)}`);
-    else setMessage("已取消選擇，原設定保留。", "muted");
+    if (error?.name !== "AbortError") setMessage(t("chooseFolderFailed", {error: formatError(error)}));
+    else setMessage(t("chooseCancelled"), "muted");
   }
 }
 
 async function reauthorizeDirectory() {
-  if (!state.handle?.requestPermission) return setMessage("目前沒有可重新授權的資料夾，請先選擇資料夾。");
+  if (!state.handle?.requestPermission) return setMessage(t("noFolderToAuthorize"));
   try {
     const permission = await state.handle.requestPermission({mode: "readwrite"});
     await saveDirectoryHandle(state.handle);
     await complete(state.handle, permission);
   } catch (error) {
-    setMessage(`重新授權失敗：${formatError(error)}`);
+    setMessage(t("reauthorizeFailed", {error: formatError(error)}));
   }
 }
 
@@ -55,20 +59,20 @@ async function complete(handle, permission) {
     targetTabId: state.targetTabId,
     sessionId: state.sessionId,
     documentToken: state.documentToken,
-    name: handle.name || "已選資料夾",
+    name: handle.name || t("directoryNone"),
     permission
   });
-  setMessage(permission === "granted" ? "已更新，正在返回原網頁。" : "設定已保留，但仍需要重新授權。", permission === "granted" ? "muted" : "error");
+  setMessage(t(permission === "granted" ? "returning" : "retainedNeedsAuthorization"), permission === "granted" ? "muted" : "error");
 }
 
 function render(handle = state.handle, permission = null) {
-  elements.name.textContent = handle?.name || "尚未選擇資料夾";
-  elements.status.textContent = handle ? `File System Access · ${permission || queryPermissionLabel(handle)}` : "尚未取得資料夾權限";
+  elements.name.textContent = handle?.name || t("directoryNone");
+  elements.status.textContent = handle ? `File System Access · ${permission || queryPermissionLabel(handle)}` : t("directoryPermissionNone");
   elements.reauthorize.disabled = !handle;
 }
 
 function queryPermissionLabel(handle) {
-  return handle ? "已記住設定，按重新授權確認寫入權限" : "尚未取得資料夾權限";
+  return handle ? t("directoryRemembered") : t("directoryPermissionNone");
 }
 
 function setMessage(text, kind = "error") {
@@ -81,7 +85,7 @@ function sendMessage(message) {
     chrome.runtime.sendMessage(message, (response) => {
       const error = chrome.runtime.lastError;
       if (error) reject(new Error(error.message));
-      else if (response?.ok === false) reject(new Error(response.error || "設定更新失敗。"));
+      else if (response?.ok === false) reject(new Error(response.error || t("settingsUpdateFailed")));
       else resolve(response);
     });
   });

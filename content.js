@@ -35,6 +35,7 @@
     candidates: [],
     branch: [],
     history: [],
+    redoHistory: [],
     frame: null,
     rectCache: new WeakMap(),
     selectionBoxes: new Map(),
@@ -156,6 +157,8 @@
       toggleCurrent();
     } else if (message.command === "UNDO") {
       undoSelection();
+    } else if (message.command === "REDO") {
+      redoSelection();
     } else if (message.command === "CLEAR") {
       commitSelection([]);
     } else if (message.command === "REMOVE_SELECTION") {
@@ -223,6 +226,7 @@
 
   async function createPanel() {
     if (state.panelHost?.isConnected && state.panelFrame) return;
+    await globalThis.DivSnapI18n.load();
     const host = document.createElement("div");
     host.setAttribute("data-divsnap-panel", "true");
     host.style.position = "fixed";
@@ -248,13 +252,13 @@
     `;
     const panel = document.createElement("section");
     panel.className = "panel";
-    panel.setAttribute("aria-label", "DivSnap 頁內控制面板");
+    panel.setAttribute("aria-label", DivSnapI18n.t("panel"));
     const frame = document.createElement("iframe");
-    frame.title = "DivSnap 控制面板";
+    frame.title = DivSnapI18n.t("panelTitle");
     frame.setAttribute("allow", "clipboard-write");
     const collapsedBar = document.createElement("div");
     collapsedBar.className = "collapsed";
-    collapsedBar.setAttribute("aria-label", "拖曳移動 DivSnap 控制面板");
+    collapsedBar.setAttribute("aria-label", DivSnapI18n.t("dragPanel"));
     collapsedBar.hidden = true;
     const collapsedTitle = document.createElement("strong");
     const collapsedIcon = document.createElement("img");
@@ -265,13 +269,13 @@
     const collapsedAction = document.createElement("button");
     collapsedAction.className = "collapsed-action";
     collapsedAction.type = "button";
-    collapsedAction.setAttribute("aria-label", "展開 DivSnap 控制面板");
-    collapsedAction.textContent = "展開";
+    collapsedAction.setAttribute("aria-label", DivSnapI18n.t("expandPanel"));
+    collapsedAction.textContent = DivSnapI18n.t("expand");
     collapsedBar.append(collapsedTitle, collapsedAction);
     const resize = document.createElement("div");
     resize.className = "resize";
     resize.setAttribute("role", "button");
-    resize.setAttribute("aria-label", "縮放 DivSnap 面板");
+    resize.setAttribute("aria-label", DivSnapI18n.t("resizePanel"));
     panel.append(collapsedBar, frame, resize);
     shadow.append(style, panel);
     (document.documentElement || document.body).append(host);
@@ -280,6 +284,7 @@
     state.panelFrame = frame;
     state.panelResize = resize;
     state.panelCollapsedBar = collapsedBar;
+    DivSnapI18n.onChange.add(() => updatePanelLabels());
     state.panelBounds = null;
     addPanelListener(resize, "pointerdown", (event) => beginPanelGesture(event, "resize"));
     addPanelListener(collapsedBar, "pointerdown", (event) => beginPanelGesture(event, "drag"));
@@ -319,13 +324,13 @@
 
   async function loadPanelBounds() {
     const stored = await chrome.storage.local.get({panelBounds: null}).catch(() => ({panelBounds: null}));
-    state.panelBounds = clampPanelBounds(stored.panelBounds || {right: 16, top: 16, width: 420, height: 420});
+    state.panelBounds = clampPanelBounds(stored.panelBounds || {right: 16, top: 16, width: 320, height: 680});
     applyPanelBounds();
   }
 
   function clampPanelToViewport() {
     if (!state.panelHost) return;
-    if (!state.panelCollapsed) state.panelBounds = clampPanelBounds(state.panelBounds || {right: 16, top: 16, width: 420, height: 420});
+    if (!state.panelCollapsed) state.panelBounds = clampPanelBounds(state.panelBounds || {right: 16, top: 16, width: 320, height: 680});
     applyPanelBounds();
   }
 
@@ -354,6 +359,16 @@
     state.panelHost.style.top = `${clamp(state.panelBounds.top, 0, Math.max(0, innerHeight - height))}px`;
     state.panelHost.style.width = `${width}px`;
     state.panelHost.style.height = `${height}px`;
+  }
+
+  function updatePanelLabels() {
+    if (!state.panelShadow) return;
+    state.panelShadow.querySelector(".panel")?.setAttribute("aria-label", DivSnapI18n.t("panel"));
+    if (state.panelFrame) state.panelFrame.title = DivSnapI18n.t("panelTitle");
+    if (state.panelCollapsedBar) state.panelCollapsedBar.setAttribute("aria-label", DivSnapI18n.t("dragPanel"));
+    const action = state.panelShadow.querySelector(".collapsed-action");
+    if (action) { action.setAttribute("aria-label", DivSnapI18n.t("expandPanel")); action.textContent = DivSnapI18n.t("expand"); }
+    state.panelResize?.setAttribute("aria-label", DivSnapI18n.t("resizePanel"));
   }
 
   function setPanelCollapsed(collapsed) {
@@ -593,6 +608,10 @@
       unlockPreview();
       return true;
     }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && key.toLowerCase() === "z") {
+      redoSelection();
+      return true;
+    }
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key.toLowerCase() === "z") {
       undoSelection();
       return true;
@@ -710,6 +729,7 @@
     if (next.length === state.multiSelection.length && next.every((element, index) => element === state.multiSelection[index])) return;
     state.history.push(state.multiSelection.slice());
     if (state.history.length > MAX_SELECTION_HISTORY) state.history.shift();
+    state.redoHistory = [];
     state.multiSelection = next;
     for (const element of next) getElementDescriptor(element);
     refreshInspector();
@@ -737,7 +757,18 @@
       if (state.locked) unlockPreview();
       return;
     }
+    state.redoHistory.push(state.multiSelection.slice());
+    if (state.redoHistory.length > MAX_SELECTION_HISTORY) state.redoHistory.shift();
     state.multiSelection = state.history.pop();
+    state.locked = false;
+    refreshInspector();
+  }
+
+  function redoSelection() {
+    if (!state.redoHistory.length) return;
+    state.history.push(state.multiSelection.slice());
+    if (state.history.length > MAX_SELECTION_HISTORY) state.history.shift();
+    state.multiSelection = state.redoHistory.pop();
     state.locked = false;
     refreshInspector();
   }
@@ -754,7 +785,7 @@
     state.captureId = captureId || `capture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     if (!elements.length || elements.some((element) => !isValidTarget(element)) || state.profileResolution.some((item) => item.status !== "resolved")) {
       refreshInspector();
-      sendCaptureResult(false, "目標已失效或 Profile 尚未完成解析。");
+      sendCaptureResult(false, DivSnapI18n.t("targetInvalid"));
       return;
     }
     state.busy = true;
@@ -767,7 +798,7 @@
         sendCaptureResult(false, error.message || String(error));
         state.captureId = null;
         updatePanelOpacity();
-        sendInspectorState(`Capture failed / 截圖失敗：${error.message || String(error)}`);
+        sendInspectorState(DivSnapI18n.t("captureRuntimeFailed", {error: error.message || String(error)}));
       }
     });
   }
@@ -849,7 +880,7 @@
       return;
     }
     const rect = rectFor(target);
-    state.label.textContent = `${state.locked ? "已鎖定 · " : ""}${describeElement(target)}`;
+    state.label.textContent = `${state.locked ? DivSnapI18n.t("locked") : ""}${describeElement(target)}`;
     state.label.dataset.below = rect.top < 36 ? "true" : "false";
     if (state.multiSelection.length) clearBoxLayers();
     else paintBoxModel(target, rect);
@@ -890,8 +921,8 @@
     state.candidates = state.candidates.filter(isValidTarget);
     if (isValidTarget(state.current) && !state.candidates.includes(state.current)) state.candidates.push(state.current);
     const message = invalid || (state.locked && !isValidTarget(state.current))
-      ? "目標已失效：請移除或重新選取後截圖。"
-      : `已選 ${state.multiSelection.length} 項 · ${state.locked ? "預覽已鎖定" : "滑過僅預覽"} · 外接矩形包含框內所有內容`;
+      ? DivSnapI18n.t("targetInvalid")
+      : DivSnapI18n.t("selectedStatus", {count: state.multiSelection.length, state: DivSnapI18n.t(state.locked ? "previewLocked" : "hoverPreview")});
     sendInspectorState(message);
   }
 
@@ -972,7 +1003,7 @@
         bufferBase64,
         mimeType: "image/png",
         filenameBase: multi ? buildMultiFilename() : buildFilename(elements[0]),
-        notices: [result.notice, result.clipped ? "Visible crop / 已裁切至可見範圍" : ""].filter(Boolean)
+        notices: [result.notice, result.clipped ? DivSnapI18n.t("visibleClipped") : ""].filter(Boolean)
       });
     } finally {
       if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
@@ -1054,7 +1085,7 @@
     const ancestors = sharedScrollableAncestors(elements);
     if (!ancestors) {
       const fallback = await captureVisibleMulti(elements, dpr);
-      return {...fallback, notice: "Different scroll containers / 不同捲動容器，改用 Visible"};
+      return {...fallback, notice: DivSnapI18n.t("scrollContainers")};
     }
     const region = unionLayoutRegion(elements, ancestors);
     if (!region || region.width <= 0 || region.height <= 0) {
@@ -1062,7 +1093,7 @@
     }
     if (region.width * dpr > 8192 || region.height * dpr > 8192) {
       const fallback = await captureVisibleMulti(elements, dpr);
-      return {...fallback, notice: "Full exceeds 8192px / 超過限制，改用 Visible"};
+      return {...fallback, notice: DivSnapI18n.t("fullTooLarge")};
     }
 
     const canvas = document.createElement("canvas");
@@ -1120,7 +1151,7 @@
     if (width * dpr > 8192 || height * dpr > 8192) {
       try {
         const fallback = await captureVisible(target, dpr);
-        return {...fallback, notice: "Full exceeds 8192px / 超過限制，改用 Visible"};
+        return {...fallback, notice: DivSnapI18n.t("fullTooLarge")};
       } finally {
         restoreScrollPositions(snapshot);
       }
@@ -1472,7 +1503,7 @@
       selection: state.multiSelection.map((element) => ({valid: isValidTarget(element), label: describeElement(element), descriptor: getElementDescriptor(element)})),
       historyLength: state.history.length,
       canCapture: !state.busy && hasTarget && !invalid && !unresolvedProfile,
-      status: statusOverride || (unresolvedProfile ? "Profile 尚有缺失、重複或待確認項目。" : invalid ? "目標已失效：請移除或重新選取後截圖。" : `已選 ${state.multiSelection.length} 項 · ${state.locked ? "預覽已鎖定" : "滑過僅預覽"}`),
+      status: statusOverride || (unresolvedProfile ? DivSnapI18n.t("profileUnresolved") : invalid ? DivSnapI18n.t("targetInvalid") : DivSnapI18n.t("selectedStatus", {count: state.multiSelection.length, state: DivSnapI18n.t(state.locked ? "previewLocked" : "hoverPreview")})),
       profileResolution: state.profileResolution.map(({index, target, status, label, matches}) => ({index, target, status, label, matchCount: matches.length})),
       page: pageContext()
     });
@@ -1556,7 +1587,7 @@
     state.captureId = null;
     state.captureRequested = false;
     showDivsnapUi();
-    sendInspectorState("Inspector 已停止。 ");
+    sendInspectorState(DivSnapI18n.t("inspectorStopped"));
     state.host?.remove();
     state.host = null;
     state.shadow = null;

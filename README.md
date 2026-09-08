@@ -4,7 +4,7 @@ DivSnap is a no-bundler Chromium Manifest V3 extension for Microsoft Edge and Go
 
 ## Features
 
-- Version 1.4.0: `Ctrl`/`Cmd` + `Z` undoes up to 10 selection steps, including a locked preview. Press `d` twice quickly to clear a confirmed selection or locked preview. These shortcuts work while the in-page panel is focused. Profile and output settings start collapsed and remember their expanded state. The panel stays fully usable while selecting; click its title to collapse it, then drag the compact bar to move it or use its Expand button to restore it. Close with the top-right ×, two Esc presses within 500 ms, or a second click on the extension icon.
+- Version 1.4.1: `Ctrl`/`Cmd` + `Z` undoes and `Shift` + `Ctrl`/`Cmd` + `Z` redoes up to 10 selection steps, including a locked preview. Press `d` twice quickly to clear a confirmed selection or locked preview. These shortcuts work while the in-page panel is focused. Profile and output settings start collapsed, remember their expanded state, and resize the panel to their current content height. The panel stays fully usable while selecting; click its title to collapse it, then drag the compact bar to move it or use its Expand button to restore it. Close with the top-right ×, two Esc presses within 500 ms, or a second click on the extension icon.
 
 - The extension icon opens or reuses one draggable, resizable Shadow DOM panel in the current web page and binds it to that tab. Clicking the icon from another web tab removes the old panel and stops the old Inspector. The browser command opens the panel and starts inspection. No shortcut is assigned by default.
 - Hover highlights an element and shows its `tag#id.class` selector plus CSS-pixel dimensions.
@@ -12,7 +12,7 @@ DivSnap is a no-bundler Chromium Manifest V3 extension for Microsoft Edge and Go
 - Up/down arrows navigate outward/inward along the hit element's ancestor chain, skipping consecutive bounds whose edges differ by at most 1 CSS pixel. Left/right arrows navigate visible siblings. Navigation locks the preview and remains available during multi-selection.
 - The in-page panel's candidate list exposes all valid ancestor levels, including same-size wrappers and overlapping elements underneath the pointer. HTML elements, canvas, SVG, and open Shadow DOM are supported; selection is not limited to divs or small containers.
 - `Shift` + click (or the panel's add/remove button) toggles the displayed candidate, then unlocks the preview. Explicitly selecting a parent replaces its selected descendants; selecting a child replaces its selected ancestor. Page clicks do not capture.
-- `Ctrl`/`Cmd` + `Z` or the undo button restores the previous selection, including a whole parent/child replacement or clear operation. With no history, it unlocks the current preview. Up to 10 changes are retained per session. Press `d` twice quickly to clear a confirmed selection or locked preview. The selected list supports individual removal.
+- `Ctrl`/`Cmd` + `Z` restores the previous selection and `Shift` + `Ctrl`/`Cmd` + `Z` restores an undone selection, including a whole parent/child replacement or clear operation. A new selection change clears redo history. With no undo history, undo unlocks the current preview. Up to 10 changes are retained per session. Press `d` twice quickly to clear a confirmed selection or locked preview. The selected list supports individual removal.
 - The panel captures the confirmed selection's union bounds. With no confirmed selection, a locked single preview is required. Cyan marks the preview, green double borders mark confirmed elements, and a yellow dashed border marks the output rectangle, including all intervening visible content. The panel remains opaque while selection is active.
 - Scroll, resize, and DOM updates refresh the overlays. Disconnected or hidden selected elements remain listed as invalid and block capture until removed or reselected.
 - `Esc` tears down the inspector and removes its listeners and overlay. Closing the panel also stops the Inspector and restores scroll positions if a capture is in progress. During capture, all DivSnap UI is hidden without unloading the iframe, then restored paused with the selection intact.
@@ -20,7 +20,7 @@ DivSnap is a no-bundler Chromium Manifest V3 extension for Microsoft Edge and Go
 - `Full` scrolls the page and compatible scrollable ancestors, stitches viewport tiles, and restores scroll positions. It captures the selected element or multi-selection's layout box, without expanding internal overflow content.
 - If a multi-selection spans different scroll containers or exceeds the canvas limit, `Full` falls back to `Visible` with a warning.
 - Canvas dimensions include `devicePixelRatio` for Retina and other high-density displays.
-- PNG output can be copied with `ClipboardItem`; saved images support PNG and high-quality WebP (`0.95`). The default is the browser Downloads folder. A selected folder is stored as a File System Access directory handle in extension-origin IndexedDB; the service worker writes there without using the Edge download list or overwriting an existing filename.
+- PNG output can be copied with `ClipboardItem`; saved images support PNG and lossless WebP (libwebp WASM). The default is the browser Downloads folder. A selected folder is stored as a File System Access directory handle in extension-origin IndexedDB; the service worker writes there without using the Edge download list or overwriting an existing filename.
 - Choosing or reauthorizing a folder opens an extension settings tab; the native picker runs only after an explicit button click. Cancel keeps the existing handle, and a successful update returns to the bound page and refreshes the panel.
 - Named local Profiles are stored in `chrome.storage.local`. They save only page identity and element location descriptors, so the same dashboard Profile can be loaded after changing time ranges or filters. Stable dashboard panels use `data-test-embeddable-id`; ambiguous, missing, or path-only matches require confirmation, repair, or explicit dismissal before capture.
 
@@ -31,14 +31,15 @@ DivSnap is a no-bundler Chromium Manifest V3 extension for Microsoft Edge and Go
 3. Select the DivSnap directory.
 4. Click the DivSnap extension icon on a normal web page, or press the configured shortcut.
 
-After source changes, use **Reload** on the DivSnap extension card. The panel output settings are stored in `chrome.storage.sync`:
+After source changes, use **Reload** on the DivSnap extension card. The panel opens at 320×680 when no size has been saved; expanding or collapsing Profile and output settings adjusts its height to the content. Visible/Full and PNG/WebP remain paired on one row, including at the default width. The top-bar language button switches the DivSnap interface between Traditional Chinese (default) and English. The panel output and language settings are stored in `chrome.storage.sync`:
 
 ```json
 {
   "copyToClipboard": true,
   "downloadEnabled": true,
   "captureMode": "visible",
-  "imageFormat": "png"
+  "imageFormat": "png",
+  "language": "zh-Hant"
 }
 ```
 
@@ -94,6 +95,10 @@ Browser-restricted pages such as `edge://`, `chrome://`, extension stores, and b
 | `settings/` | Explicit-button folder picker and File System Access reauthorization |
 | `icons/` | 16/32/48/128px extension icons |
 | `docs/architecture.*` | Architecture diagram source and rendered artifact |
+
+## Versioning
+
+Every delivered change, including small fixes, increments the patch version and keeps `manifest.json`, the panel version label, and this README aligned. Packaging is only produced when explicitly requested.
 
 ## Development checks
 

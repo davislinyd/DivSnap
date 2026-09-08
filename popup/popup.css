@@ -14,7 +14,7 @@
 
 html, body {
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
 }
 
@@ -84,12 +84,13 @@ select, input[type="text"] { min-width: 0; padding: 7px 8px; color: var(--ink); 
 .selection-row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .empty-state { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
 
-.mode-options, .format-options { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 6px; }
+.mode-options, .format-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin-top: 6px; }
 .mode-option, .format-option { display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 4px 6px; background: var(--soft); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
 .mode-option:has(input:checked), .format-option:has(input:checked) { background: #eaf8fd; border-color: #69cde9; box-shadow: inset 0 0 0 1px #69cde9; }
 .mode-option::before, .format-option::before { width: 12px; height: 12px; flex: 0 0 auto; border: 2px solid #b7c7d4; border-radius: 50%; content: ""; }
 .mode-option:has(input:checked)::before, .format-option:has(input:checked)::before { border: 4px solid var(--cyan); }
 .mode-option input, .format-option input, .setting-row input { position: absolute; opacity: 0; pointer-events: none; }
+.mode-option span, .format-option span { min-width: 0; }
 .mode-option strong, .format-option strong, .setting-row strong, .directory-copy strong { display: block; font-size: 11px; }
 .mode-option small, .format-option small, .setting-row small, .directory-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; line-height: 1.3; }
 .setting-row { display: flex; align-items: center; min-height: 32px; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -117,7 +118,6 @@ footer { margin-top: 4px; color: #a0afbd; font-size: 9px; text-align: center; }
 
 @media (max-width: 360px) {
   .control-shell { padding: 6px; }
-  .mode-options, .format-options { grid-template-columns: 1fr; }
   .shortcut-button { padding: 0 6px; }
   .shortcut-status { max-width: 72px; }
 }
@@ -130,6 +130,8 @@ h1 { font-size: 17px; }
 #panel-drag { cursor: move; user-select: none; touch-action: none; }
 #panel-close { position: absolute; top: -2px; right: -2px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; color: var(--navy); background: transparent; font-size: 20px; line-height: 1; }
 #panel-close:hover { background: #e3edf4; }
+.language-toggle { min-width: 25px; min-height: 26px; padding: 0 5px; color: var(--navy); background: #fff; border: 1px solid var(--line); border-radius: 5px; font-size: 10px; font-weight: 800; }
+.language-toggle:hover { background: var(--soft); border-color: #b9cfde; }
 body[data-panel-collapsed="true"] { overflow: hidden; }
 body[data-panel-collapsed="true"] .control-shell { padding: 3px 4px; }
 body[data-panel-collapsed="true"] .control-shell > :not(.topbar) { display: none; }
