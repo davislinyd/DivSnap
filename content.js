@@ -990,22 +990,22 @@
     const dpr = window.devicePixelRatio || 1;
     const ancestors = [...new Set(elements.flatMap((element) => scrollableAncestors(element)))];
     state.captureSnapshot = saveScrollPositionsForAncestors(ancestors);
+    let fullLayoutSnapshot = [];
     let result;
     try {
       hideDivsnapUi();
+      if (settings.captureMode === "full") fullLayoutSnapshot = prepareFullLayout(elements);
       await waitForPaint();
       assertNotCancelled();
       state.rectCache = new WeakMap();
       if (elements.some((element) => !isValidTarget(element))) throw new Error("Selected elements changed. Please select again.");
-      if (multi) {
-        result = settings.captureMode === "full"
+      result = settings.captureMode === "full"
+        ? multi
           ? await captureFullMulti(elements, dpr)
-          : await captureVisibleMulti(elements, dpr);
-      } else {
-        result = settings.captureMode === "full"
-          ? await captureFull(elements[0], dpr)
+          : await captureFull(elements[0], dpr)
+        : multi
+          ? await captureVisibleMulti(elements, dpr)
           : await captureVisible(elements[0], dpr);
-      }
       assertNotCancelled();
       const blob = await canvasToBlob(result.canvas);
       const bufferBase64 = await blobToBase64(blob);
@@ -1018,6 +1018,7 @@
         notices: [result.notice, result.clipped ? DivSnapI18n.t("visibleClipped") : ""].filter(Boolean)
       });
     } finally {
+      restoreFullLayout(fullLayoutSnapshot);
       if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
       state.captureSnapshot = null;
       state.busy = false;
@@ -1027,6 +1028,71 @@
         refreshInspector();
       }
       state.captureId = null;
+    }
+  }
+
+  function prepareFullLayout(elements) {
+    const snapshots = [];
+    const seen = new Set();
+    const positioned = [];
+    try {
+      for (const element of elements) {
+        const ancestors = [];
+        for (let node = element; node && node !== state.host; node = parentElementAcrossShadow(node)) ancestors.push(node);
+        for (const target of ancestors.reverse()) {
+          if (seen.has(target)) continue;
+          seen.add(target);
+          const computed = getComputedStyle(target);
+          const isPositioned = ["fixed", "sticky"].includes(computed.position);
+          const clipped = [computed.overflow, computed.overflowX, computed.overflowY].some((value) => value !== "visible");
+          const contained = computed.contain.includes("paint") || computed.contain === "strict" || computed.contain === "content";
+          const constrained = isPositioned || clipped || contained || computed.scrollBehavior !== "auto" || computed.scrollSnapType !== "none";
+          if (!constrained) continue;
+          const rect = target.getBoundingClientRect();
+          const style = target.style;
+          const properties = ["position", "left", "top", "right", "bottom", "width", "height", "box-sizing", "transform", "overflow", "overflow-x", "overflow-y", "contain", "scroll-behavior", "scroll-snap-type"];
+          const saved = properties.map((property) => ({property, value: style.getPropertyValue(property), priority: style.getPropertyPriority(property)}));
+          if (isPositioned) {
+            style.setProperty("position", "absolute", "important");
+            style.setProperty("left", "0", "important");
+            style.setProperty("top", "0", "important");
+            style.setProperty("right", "auto", "important");
+            style.setProperty("bottom", "auto", "important");
+            style.setProperty("width", `${rect.width}px`, "important");
+            style.setProperty("height", `${rect.height}px`, "important");
+            style.setProperty("box-sizing", "border-box", "important");
+            style.setProperty("transform", "none", "important");
+          }
+          if (clipped) {
+            style.setProperty("overflow", "visible", "important");
+            style.setProperty("overflow-x", "visible", "important");
+            style.setProperty("overflow-y", "visible", "important");
+          }
+          if (contained) style.setProperty("contain", "none", "important");
+          if (computed.scrollBehavior !== "auto") style.setProperty("scroll-behavior", "auto", "important");
+          if (computed.scrollSnapType !== "none") style.setProperty("scroll-snap-type", "none", "important");
+          snapshots.push({element: target, saved});
+          if (isPositioned) positioned.push({element: target, left: scrollX + rect.left, top: scrollY + rect.top});
+        }
+      }
+      for (const item of positioned) {
+        const rect = item.element.getBoundingClientRect();
+        item.element.style.setProperty("left", `${parseFloat(item.element.style.left) + item.left - scrollX - rect.left}px`, "important");
+        item.element.style.setProperty("top", `${parseFloat(item.element.style.top) + item.top - scrollY - rect.top}px`, "important");
+      }
+      return snapshots;
+    } catch (error) {
+      restoreFullLayout(snapshots);
+      throw error;
+    }
+  }
+
+  function restoreFullLayout(snapshots) {
+    for (const {element, saved} of snapshots) {
+      for (const {property, value, priority} of saved) {
+        if (value) element.style.setProperty(property, value, priority);
+        else element.style.removeProperty(property);
+      }
     }
   }
 
@@ -1095,10 +1161,7 @@
 
   async function captureFullMulti(elements, dpr) {
     const ancestors = sharedScrollableAncestors(elements);
-    if (!ancestors) {
-      const fallback = await captureVisibleMulti(elements, dpr);
-      return {...fallback, notice: DivSnapI18n.t("scrollContainers")};
-    }
+    if (!ancestors) throw new Error("Full capture could not normalize the selected scroll containers.");
     const region = unionLayoutRegion(elements, ancestors);
     if (!region || region.width <= 0 || region.height <= 0) {
       throw new Error("Selected elements have no capture area.");
@@ -1125,10 +1188,11 @@
           const pointY = y === 0 ? region.top : Math.min(region.bottom - 1, region.top + y + innerHeight - 1);
           await revealLayoutPoint(pointX, pointY, ancestors);
           const visible = visibleLayoutIntersection(region, ancestors);
-          const localLeft = clamp(visible.left + layoutScrollOffset(ancestors).x - region.left, 0, region.width);
-          const localTop = clamp(visible.top + layoutScrollOffset(ancestors).y - region.top, 0, region.height);
-          const localRight = clamp(visible.right + layoutScrollOffset(ancestors).x - region.left, 0, region.width);
-          const localBottom = clamp(visible.bottom + layoutScrollOffset(ancestors).y - region.top, 0, region.height);
+          const offset = layoutScrollOffset(ancestors);
+          const localLeft = clamp(visible.left + scrollX + offset.x - region.left, 0, region.width);
+          const localTop = clamp(visible.top + scrollY + offset.y - region.top, 0, region.height);
+          const localRight = clamp(visible.right + scrollX + offset.x - region.left, 0, region.width);
+          const localBottom = clamp(visible.bottom + scrollY + offset.y - region.top, 0, region.height);
           if (visible.width <= 0 || visible.height <= 0 || localBottom <= y || localRight <= x) {
             throw new Error("Full capture did not make progress.");
           }
@@ -1227,16 +1291,13 @@
       const ancestorRect = ancestor.getBoundingClientRect();
       const pointX = targetRect.left + localX;
       const pointY = targetRect.top + localY;
-      if (pointX < ancestorRect.left) ancestor.scrollLeft -= ancestorRect.left - pointX;
-      else if (pointX >= ancestorRect.right) ancestor.scrollLeft += pointX - ancestorRect.right + 1;
-      if (pointY < ancestorRect.top) ancestor.scrollTop -= ancestorRect.top - pointY;
-      else if (pointY >= ancestorRect.bottom) ancestor.scrollTop += pointY - ancestorRect.bottom + 1;
+      ancestor.scrollLeft += pointX - ancestorRect.right + 1;
+      ancestor.scrollTop += pointY - ancestorRect.bottom + 1;
     }
     const targetRect = target.getBoundingClientRect();
     const pointX = targetRect.left + localX;
     const pointY = targetRect.top + localY;
-    if (pointX < 0 || pointX >= innerWidth) window.scrollBy(pointX < 0 ? pointX : pointX - innerWidth + 1, 0);
-    if (pointY < 0 || pointY >= innerHeight) window.scrollBy(0, pointY < 0 ? pointY : pointY - innerHeight + 1);
+    window.scrollBy(pointX - innerWidth + 1, pointY - innerHeight + 1);
     await waitForPaint(1);
   }
 
@@ -1342,14 +1403,11 @@
     for (const ancestor of ancestors) {
       const point = layoutViewportPoint(x, y, ancestors);
       const rect = ancestor.getBoundingClientRect();
-      if (point.x < rect.left) ancestor.scrollLeft -= rect.left - point.x;
-      else if (point.x >= rect.right) ancestor.scrollLeft += point.x - rect.right + 1;
-      if (point.y < rect.top) ancestor.scrollTop -= rect.top - point.y;
-      else if (point.y >= rect.bottom) ancestor.scrollTop += point.y - rect.bottom + 1;
+      ancestor.scrollLeft += point.x - rect.right + 1;
+      ancestor.scrollTop += point.y - rect.bottom + 1;
     }
     const point = layoutViewportPoint(x, y, ancestors);
-    if (point.x < 0 || point.x >= innerWidth) window.scrollBy(point.x < 0 ? point.x : point.x - innerWidth + 1, 0);
-    if (point.y < 0 || point.y >= innerHeight) window.scrollBy(0, point.y < 0 ? point.y : point.y - innerHeight + 1);
+    window.scrollBy(point.x - innerWidth + 1, point.y - innerHeight + 1);
     await waitForPaint(1);
   }
 

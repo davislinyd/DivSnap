@@ -39,10 +39,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 h1 { margin: 0; font-size: 20px; line-height: 1.1; }
 h1 span { color: var(--cyan); font-size: 11px; font-weight: 700; }
 .brand-copy p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
-.shortcut-actions { display: flex; align-items: center; gap: 6px; }
 .shortcut-button { min-height: 30px; padding: 0 8px; color: var(--navy); background: #fff; border: 1px solid var(--line); border-radius: 6px; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .shortcut-button:hover { background: var(--soft); border-color: #b9cfde; }
-.shortcut-status { max-width: 92px; color: var(--muted); font-size: 9px; line-height: 1.25; }
+.shortcut-status { flex: 1; min-width: 0; color: var(--muted); font-size: 10px; line-height: 1.25; }
 
 .binding-card, .section-card { margin-top: 4px; padding: 4px 6px; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
 .binding-card { background: #eaf8fd; border-color: #c7ecf8; }
@@ -54,7 +53,7 @@ h1 span { color: var(--cyan); font-size: 11px; font-weight: 700; }
 .status-dot[data-state="busy"] { background: var(--coral); }
 .subtle { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 
-.profile-row, .profile-edit-row, .workspace-actions, .navigation-actions, .directory-row, .retry-row { display: flex; align-items: center; gap: 6px; }
+.profile-row, .profile-edit-row, .workspace-actions, .navigation-actions, .directory-row, .shortcut-row, .retry-row { display: flex; align-items: center; gap: 6px; }
 .profile-row { margin-top: 10px; }
 .profile-edit-row { align-items: stretch; margin-top: 7px; flex-wrap: wrap; }
 select, input[type="text"] { min-width: 0; padding: 7px 8px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 5px; }
@@ -102,6 +101,7 @@ select, input[type="text"] { min-width: 0; padding: 7px 8px; color: var(--ink); 
 .directory-row { align-items: flex-start; margin-top: 6px; }
 .directory-copy { flex: 1; min-width: 0; }
 .directory-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shortcut-row { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 
 .action-bar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; padding: 4px 6px; background: var(--navy); border-radius: 6px; }
 .progress-copy { min-width: 0; color: #fff; }
@@ -119,7 +119,6 @@ footer { margin-top: 4px; color: #a0afbd; font-size: 9px; text-align: center; }
 @media (max-width: 360px) {
   .control-shell { padding: 6px; }
   .shortcut-button { padding: 0 6px; }
-  .shortcut-status { max-width: 72px; }
 }
 
 [hidden] { display: none !important; }
@@ -138,11 +137,9 @@ body[data-panel-collapsed="true"] .control-shell > :not(.topbar) { display: none
 body[data-panel-collapsed="true"] .topbar { min-height: 30px; padding-right: 24px; }
 body[data-panel-collapsed="true"] .brand-mark { width: 24px; height: 24px; border-radius: 7px; }
 body[data-panel-collapsed="true"] .brand-mark img { width: 19px; height: 19px; }
-body[data-panel-collapsed="true"] .shortcut-actions, body[data-panel-collapsed="true"] #version { display: none; }
+body[data-panel-collapsed="true"] #version { display: none; }
 body[data-panel-collapsed="true"] h1 { font-size: 14px; }
 body[data-panel-collapsed="true"] #panel-close { top: 2px; right: 1px; }
-.shortcut-actions { flex-direction: row; flex-shrink: 0; gap: 4px; }
-.shortcut-status { max-width: 88px; }
 summary.section-heading { cursor: pointer; gap: 6px; }
 summary.section-heading::before { content: "▸"; }
 details[open] > summary::before { content: "▾"; }

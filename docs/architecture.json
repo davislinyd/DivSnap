@@ -22,7 +22,7 @@
         "id": "capture-flow",
         "label": "Capture and compose",
         "focus": ["page", "capture", "composer", "inspector"],
-        "note": "The content script requests viewport captures and composes a DPR-aware crop or stitched layout box, then returns CAPTURE_RESULT data."
+        "note": "Full unfolds constrained ancestors; the content script stitches the DPR-aware layout box and restores page state."
       },
       {
         "id": "outputs",
@@ -40,7 +40,7 @@
     {"id": "inspector", "type": "frontend", "label": "DOM Inspector", "sublabel": "panel + box overlay + DOM refs", "tag": "content.js", "sources": [{"path": "content.js", "line": 1}], "pos": [560, 180], "size": [205, 82]},
     {"id": "page", "type": "external", "label": "Active Web Page", "sublabel": "DOM + viewport", "tag": "activeTab", "sources": [{"path": "manifest.json", "line": 1}], "pos": [560, 395], "size": [205, 74]},
     {"id": "capture", "type": "cloud", "label": "CaptureVisibleTab", "sublabel": "PNG data URL", "tag": "chrome.tabs", "sources": [{"path": "background.js", "line": 1}], "pos": [850, 105], "size": [205, 74]},
-    {"id": "composer", "type": "backend", "label": "Canvas Composer", "sublabel": "DPR crop / full stitch", "tag": "Canvas 2D", "sources": [{"path": "content.js", "line": 1}], "pos": [850, 270], "size": [205, 82]},
+    {"id": "composer", "type": "backend", "label": "Canvas Composer", "sublabel": "DPR crop / normalized full stitch", "tag": "Canvas 2D", "sources": [{"path": "content.js", "line": 1}], "pos": [850, 270], "size": [205, 82]},
     {"id": "clipboard", "type": "external", "label": "Clipboard", "sublabel": "ClipboardItem PNG only", "tag": "optional output", "sources": [{"path": "popup/popup.js", "line": 1}], "pos": [850, 445], "size": [205, 74]},
     {"id": "folder", "type": "database", "label": "Local Folder", "sublabel": "worker-owned IndexedDB handle", "tag": "File System Access", "sources": [{"path": "background.js", "line": 1}], "pos": [1075, 395], "size": [160, 74]},
     {"id": "downloads", "type": "external", "label": "Downloads", "sublabel": "timestamped PNG / WebP", "tag": "optional output", "sources": [{"path": "background.js", "line": 1}], "pos": [1050, 540], "size": [175, 74]},
@@ -63,7 +63,7 @@
     {"id": "composer-downloads", "from": "composer", "to": "downloads", "label": "DOWNLOAD_IMAGE", "labelAt": [1170, 500], "fromSide": "right", "toSide": "top", "via": [[1065, 311], [1065, 520], [1137.5, 520]], "variant": "emphasis"}
   ],
   "cards": [
-    {"dot": "cyan", "title": "Capture", "items": ["Visible clamps the border box to the viewport", "Full stitches tiles without expanding overflow content", "Canvas dimensions include devicePixelRatio"]},
+    {"dot": "cyan", "title": "Capture", "items": ["Visible clamps the border box to the viewport", "Full temporarily unfolds constraints, stitches the layout box, then restores state", "Canvas dimensions include devicePixelRatio"]},
     {"dot": "emerald", "title": "Outputs", "items": ["Clipboard always uses a PNG Blob and ClipboardItem", "Saved output supports PNG and WebP 0.95", "The worker owns the folder handle and avoids overwriting files"]},
     {"dot": "rose", "title": "Security", "items": ["No <all_urls> host permission", "Injection is on demand through activeTab", "Cross-origin iframe documents are not entered"]}
   ]
