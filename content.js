@@ -330,7 +330,10 @@
 
   function clampPanelToViewport() {
     if (!state.panelHost) return;
-    if (!state.panelCollapsed) state.panelBounds = clampPanelBounds(state.panelBounds || {right: 16, top: 16, width: 320, height: 680});
+    const bounds = state.panelBounds || {right: 16, top: 16, width: 320, height: 680};
+    state.panelBounds = state.panelCollapsed
+      ? clampPanelPosition(bounds, Math.min(COLLAPSED_PANEL_WIDTH, innerWidth), Math.min(COLLAPSED_PANEL_HEIGHT, innerHeight))
+      : clampPanelBounds(bounds);
     applyPanelBounds();
   }
 
@@ -339,9 +342,13 @@
     const minHeight = Math.min(180, innerHeight);
     const width = clamp(Number.isFinite(bounds?.width) ? bounds.width : 420, minWidth, Math.min(900, innerWidth));
     const height = clamp(Number.isFinite(bounds?.height) ? bounds.height : 420, minHeight, Math.min(1200, innerHeight));
-    const left = clamp(Number.isFinite(bounds?.left) ? bounds.left : innerWidth - width - 16, 0, Math.max(0, innerWidth - width));
-    const top = clamp(Number.isFinite(bounds?.top) ? bounds.top : 16, 0, Math.max(0, innerHeight - height));
-    return {left: Math.round(left), top: Math.round(top), width: Math.round(width), height: Math.round(height)};
+    return clampPanelPosition({...bounds, width, height}, width, height);
+  }
+
+  function clampPanelPosition(bounds, renderedWidth, renderedHeight) {
+    const left = clamp(Number.isFinite(bounds?.left) ? bounds.left : innerWidth - renderedWidth - 16, 0, Math.max(0, innerWidth - renderedWidth));
+    const top = clamp(Number.isFinite(bounds?.top) ? bounds.top : 16, 0, Math.max(0, innerHeight - renderedHeight));
+    return {left: Math.round(left), top: Math.round(top), width: Math.round(bounds.width), height: Math.round(bounds.height)};
   }
 
   function applyPanelBounds() {
@@ -374,8 +381,11 @@
   function setPanelCollapsed(collapsed) {
     if (!state.panelHost || state.panelCollapsed === collapsed) return;
     state.panelCollapsed = collapsed;
-    if (!collapsed) state.panelBounds = clampPanelBounds(state.panelBounds);
+    state.panelBounds = collapsed
+      ? clampPanelPosition(state.panelBounds, Math.min(COLLAPSED_PANEL_WIDTH, innerWidth), Math.min(COLLAPSED_PANEL_HEIGHT, innerHeight))
+      : clampPanelBounds(state.panelBounds);
     applyPanelBounds();
+    if (!collapsed) persistPanelBounds();
   }
 
   function postPanelCollapsed(collapsed = false) {
@@ -406,7 +416,9 @@
       const deltaX = moveEvent.clientX - start.x;
       const deltaY = moveEvent.clientY - start.y;
       state.panelBounds = type === "drag"
-        ? clampPanelBounds({left: start.left + deltaX, top: start.top + deltaY, width: start.width, height: start.height})
+        ? (state.panelCollapsed
+          ? clampPanelPosition({...start, left: start.left + deltaX, top: start.top + deltaY}, Math.min(COLLAPSED_PANEL_WIDTH, innerWidth), Math.min(COLLAPSED_PANEL_HEIGHT, innerHeight))
+          : clampPanelBounds({left: start.left + deltaX, top: start.top + deltaY, width: start.width, height: start.height}))
         : clampPanelBounds({left: start.left, top: start.top, width: start.width + deltaX, height: start.height + deltaY});
       applyPanelBounds();
     };
