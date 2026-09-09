@@ -445,6 +445,7 @@
     const message = event.data;
     if (message?.type === "DIVSNAP_PANEL_CLOSE") return closePanelByUser();
     if (message?.type === "DIVSNAP_PANEL_TOGGLE_COLLAPSE") return setPanelCollapsed(!state.panelCollapsed);
+    if (message?.type === "DIVSNAP_PANEL_FOCUS") return focusPanel();
     if (message?.type === "DIVSNAP_PANEL_ESCAPE") return handlePanelEscape();
     if (message?.type === "DIVSNAP_PANEL_ENTER") return handleInspectorEnter();
     if (message?.type === "DIVSNAP_PANEL_KEYDOWN") return handleSelectionKey(message);
@@ -490,7 +491,7 @@
   }
 
   function focusPanel() {
-    state.panelFrame?.focus();
+    state.panelFrame?.focus({preventScroll: true});
     updatePanelOpacity();
   }
 
@@ -798,6 +799,7 @@
     if (!elements.length || elements.some((element) => !isValidTarget(element)) || state.profileResolution.some((item) => item.status !== "resolved")) {
       refreshInspector();
       sendCaptureResult(false, DivSnapI18n.t("targetInvalid"));
+      state.captureId = null;
       return;
     }
     state.busy = true;
@@ -808,11 +810,10 @@
       if (state.running && !state.cancelled) {
         state.paused = true;
         sendCaptureResult(false, error.message || String(error));
-        state.captureId = null;
         updatePanelOpacity();
         sendInspectorState(DivSnapI18n.t("captureRuntimeFailed", {error: error.message || String(error)}));
       }
-    });
+    }).finally(() => { state.captureId = null; });
   }
 
   function requestKeyboardCapture() {
@@ -992,6 +993,7 @@
     state.captureSnapshot = saveScrollPositionsForAncestors(ancestors);
     let fullLayoutSnapshot = [];
     let result;
+    let payload;
     try {
       hideDivsnapUi();
       if (settings.captureMode === "full") fullLayoutSnapshot = prepareFullLayout(elements);
@@ -1011,12 +1013,12 @@
       const bufferBase64 = await blobToBase64(blob);
       assertNotCancelled();
       state.paused = true;
-      sendCaptureResult(true, "", {
+      payload = {
         bufferBase64,
         mimeType: "image/png",
         filenameBase: multi ? buildMultiFilename() : buildFilename(elements[0]),
         notices: [result.notice, result.clipped ? DivSnapI18n.t("visibleClipped") : ""].filter(Boolean)
-      });
+      };
     } finally {
       restoreFullLayout(fullLayoutSnapshot);
       if (state.captureSnapshot) restoreScrollPositions(state.captureSnapshot);
@@ -1026,9 +1028,10 @@
         state.paused = true;
         showDivsnapUi();
         refreshInspector();
+        focusPanel();
       }
-      state.captureId = null;
     }
+    sendCaptureResult(true, "", payload);
   }
 
   function prepareFullLayout(elements) {

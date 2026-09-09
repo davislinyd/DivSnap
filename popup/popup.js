@@ -418,10 +418,10 @@ async function runOutput(kind) {
     try {
       await copyPng(output.pngBlob);
       output.failedCopy = false;
-      output.messages = output.messages.filter((message) => !message.startsWith("剪貼簿"));
+      output.messages = output.messages.filter((message) => !/^(剪貼簿|Clipboard)/.test(message));
       output.messages.push(DivSnapI18n.language === "en" ? "PNG copied to clipboard" : "PNG 已複製到剪貼簿");
     } catch (error) {
-      output.messages = output.messages.filter((message) => !message.startsWith("剪貼簿"));
+      output.messages = output.messages.filter((message) => !/^(剪貼簿|Clipboard)/.test(message));
       output.messages.push(t("clipboardFailed", {error: formatError(error)}));
     }
     return;
@@ -705,7 +705,23 @@ async function downloadFromBrowser(filename, blob) {
 
 async function copyPng(blob) {
   if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error("Clipboard API unavailable; 請點擊複製按鈕重試。");
+  await ensureClipboardFocus();
   await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]);
+}
+
+async function ensureClipboardFocus() {
+  if (document.hasFocus()) return;
+  await new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timeout);
+      window.removeEventListener("focus", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, 500);
+    window.addEventListener("focus", finish);
+    postPanelMessage({type: "DIVSNAP_PANEL_FOCUS"});
+  });
+  if (!document.hasFocus()) throw new Error(t("clipboardFocusRequired"));
 }
 
 function encodeWebp(pngBlob) {
